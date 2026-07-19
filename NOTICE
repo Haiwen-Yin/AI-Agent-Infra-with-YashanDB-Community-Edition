@@ -1,32 +1,38 @@
 AI Agent Infra with YashanDB - Community Edition
 Copyright (c) 2026 Haiwen Yin. All rights reserved.
 
-This product is licensed under the Apache License, Version 2.0 (the "License").
-You may not use this product except in compliance with the License.
-You may obtain a copy of the License at
+Official Website: https://db4agent.top
 
-    http://www.apache.org/licenses/LICENSE-2.0
+This product is licensed under the Apache License, Version 2.0.
+See LICENSE for details.
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+
+This product uses YashanDB technologies, including but not limited to:
+- YashanDB 23.5.4+ (崖山数据库)
+- YashanDB VECTOR data type + HNSW vector index
+- YashanDB SEARCH INDEX (full-text search)
+- YashanDB JSON type
+- YashanDB PL/SQL packages (Memory Fusion, Knowledge Base API, ...)
+- YashanDB DBMS_SCHEDULER (scheduled jobs)
+- yaspy 1.2.1 (Python driver for YashanDB)
+
+YashanDB (崖山数据库) is a product of 北京崖山科技有限公司
+(Beijing Yashan Technology Co., Ltd.).
+yaspy is the official Python driver for YashanDB.
+Other names may be trademarks of their respective owners.
+
+
 
 ---
 
-This product uses YashanDB technologies, including but not limited to:
-- YashanDB 23.5.4+
-- YashanDB Property Graph (GRAPH_TABLE)
-- YashanDB VECTOR Data Type + HNSW Index
-- YashanDB SEARCH INDEX (Full-Text Search)
-- YashanDB JSON Type
-- YashanDB PL/SQL Packages
-- YashanDB DBMS_SCHEDULER
-- yaspy Python Driver
+Bundled third-party Python packages (under vendor/) retain their
+upstream licenses. The full list is available in requirements.txt;
+notable packages include:
+- oracledb, psycopg2, yaspy — database drivers (Apache 2.0 / LGPL / proprietary)
+- PyJWT — JSON Web Token implementation (MIT)
+- requests, urllib3 — HTTP client (Apache 2.0 / MIT)
+- PyYAML — YAML parser (MIT)
+- jsonschema, jsonschema-specifications — schema validation (MIT)
 
-YashanDB is a product of SICS (Smart IaaS Cloud Storage).
-yaspy is the Python driver for YashanDB.
-Other names may be trademarks of their respective owners.
-
-Official Website: https://db4agent.top
+These packages are redistributed unmodified; their upstream LICENSE files
+take precedence over this NOTICE for the corresponding code.
