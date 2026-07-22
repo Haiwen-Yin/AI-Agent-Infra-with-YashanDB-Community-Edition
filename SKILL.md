@@ -1,6 +1,6 @@
 # SKILL.md - AI Agent Infra with YashanDB
 
-> **Version:** 4.0.0 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
+> **Version:** 4.0.1 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
 
 This is the operations guide for the AI Agent Infra with YashanDB
 release package. It covers everything an operator (human or AI Agent)
@@ -36,7 +36,7 @@ After extracting the release zip, you have:
 AI-Agent-Infra-with-YashanDB-{Community,Enterprise}-Edition/
 ├── SKILL.md                        # this file
 ├── CHANGELOG.md                    # full version history
-├── RELEASE_NOTES_v4.0.0.md         # this release's notes
+├── RELEASE_NOTES_v4.0.1.md   # this release's notes
 ├── NOTICE                          # third-party attributions
 ├── LICENSE  /  LICENSE_ENTERPRISE  # edition-specific license
 ├── requirements.txt                # pinned Python deps
@@ -99,7 +99,7 @@ steps are required** (in this order):
 
 ```bash
 # 1. Extract the zip
-unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.0.0.zip
+unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.0.1.zip
 cd AI-Agent-Infra-with-YashanDB-Enterprise-Edition
 
 # 2. Install yaspy driver + YashanDB client libraries (REQUIRED FIRST)
@@ -148,11 +148,11 @@ vim config.json   # replace every <PLACEHOLDER> with a real value
 ```
 
 ### Auto-encryption
-On first startup, `auto_encrypt_config()` rewrites the `database`, `llm`,
-and `model_routing` sections of `config.json` in place as `_encrypted`
-blobs (PBKDF2-derived key, AES-256-GCM via YashanDB's built-in crypto
-package). The plaintext is discarded; the server decrypts transparently
-on every read.
+On first startup, `auto_encrypt_config()` encrypts sensitive fields in the
+`database`, `security`, `llm`, and `model_routing` sections of `config.json`
+as AES-256-GCM `_encrypted` blobs. This includes database credentials, API
+keys, and `security.secret_key`; non-sensitive policy remains readable. The
+server enforces owner-only (`0600`) permissions and decrypts transparently.
 
 Manual encrypt / decrypt:
 ```bash
@@ -296,7 +296,7 @@ Tests use the configured `config.json` connection. Set
 | Server starts but `import oracledb` fails | wrong adapter - this is the YashanDB edition | use the Oracle release zip instead |
 | Portal chat returns 500 | LLM `api_url` not configured | edit `config.json` -> `llm.api_url` |
 | Deployment fails with "schema_version exists" | DB already has schema | drop schema or use `--force` |
-| `config.json` has `_encrypted` but server can't decrypt | `MASTER_DB_KEY` env var changed | unset it (key is derived from `secret_key` in config) |
+| `config.json` has `_encrypted` but server can't decrypt | configured master key does not match | restore the matching `MASTER_DB_KEY` or `~/.ai-agent-infra/master.key` backup |
 | yaspy `.so` symlinks broken after copy | zip cannot store symlinks | re-run `bash scripts/install_yaspy.sh` |
 
 Server log: `viz_server.log` in the project directory.

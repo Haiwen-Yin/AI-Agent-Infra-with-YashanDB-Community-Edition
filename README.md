@@ -1,24 +1,20 @@
 # AI-Agent-Infra-with-YashanDB-Community-Edition
 
-> **v4.0.0 · Community Edition · YashanDB**
+> **v4.0.1 · Community Edition · YashanDB**
 >
-> v4.0.0 - Community Edition for YashanDB. 109 tests pass.
+> Database-backed AI Agent infrastructure for YashanDB.
 
 ![License](https://img.shields.io/badge/License-Apache_2.0-green)
 
-AI Agent Infra is a multi-agent infrastructure platform that ships in six
-editions — three databases (Oracle, PostgreSQL, YashanDB) times two tiers
-(Community, Enterprise). This package is the **Community Edition for
-YashanDB**. It is generated from the unified source repository at
-`/root/ai-agent-infra` by `build.py`.
-
-- Database: **YashanDB** (driver: `yaspy`)
-- Web port: **8002**
-- License: **Apache-2.0**
-- Test count: **109** tests (minimum for this edition:
-  109)
-
 ---
+
+## Product Overview
+
+AI Agent Infra with YashanDB is a database-backed infrastructure layer for operating AI Agents on YashanDB 23.5.4 or later. It persists Agent identities, memory, knowledge, graph relationships, workspaces, specifications, task plans, Skills, and execution state in the database so that Agents can share governed context across sessions.
+
+The runtime combines relational and JSON data with vector search, SEARCH INDEX full-text retrieval, PL/SQL APIs, and database scheduling. Each Business Agent uses an independent database user, and requests fail closed instead of falling back to schema-owner access.
+
+This Community Edition provides the complete core runtime, including memory and knowledge management, hybrid search, Agent lifecycle management, workspaces and branches, specification and Loop workflows, collaboration, Harness templates, MCP integration, Portal chat, and the management Dashboard.
 
 ## 1. Package Contents
 
@@ -29,16 +25,16 @@ AI-Agent-Infra-with-YashanDB-Community-Edition/
 ├── start_web_server.sh       # one-shot launcher (invokes wizard on first run)
 ├── SKILL.md                  # project identity reference
 ├── CHANGELOG.md              # full version history (v1.0.0 → current)
-├── RELEASE_NOTES_vv4.0.0.md
+├── RELEASE_NOTES_v4.0.1.md   # release notes for this version
 ├── LICENSE
-
+├── NOTICE
 ├── docs/                     # architecture, api-reference, security, deployment, ...
 └── scripts/
     ├── agent_bootstrap.py    # Business Agent registration CLI
     ├── config_wizard.sh      # first-run interactive config prompt
     ├── verify_deps.py        # pre-flight dependency checker
     ├── install_offline.sh    # offline install from vendor/
-    | deploy_yashandb.py
+    ├── deploy_yashandb.py
     ├── lib/                  # business modules
     │   ├── connection.py     # yaspy connection layer (adapter)
     │   ├── config.py         # reads config.json (adapter, auto-decrypts)
@@ -51,10 +47,10 @@ AI-Agent-Infra-with-YashanDB-Community-Edition/
     │   ├── 2_api.sql
     │   ├── 3_jobs.sql
     │   └── 4_harness_templates.sql
-    ├── tests/                # pytest suite + parameterized conftest.py
+    ├── tests/                # pytest suite
     ├── tools/                # encrypt_config.py
     └── visualization/
-        ├── server.py         # HTTP server (single source of VERSION)
+        ├── server.py         # HTTP server
         ├── static/
         └── templates/
 ```
@@ -96,8 +92,7 @@ On first run, the script detects unresolved `<PLACEHOLDER>` tokens in
 `config.json` (or copies the template if missing) and interactively prompts
 for:
 
-- **database**: `user`, `password`, `dsn` (Oracle / YashanDB)
-  — or `host`, `port`, `database` (PostgreSQL)
+- **database**: `user`, `password`, `dsn`
 - **llm**: `api_url`, `model`, `api_key`
 - **embedding**: `api_url`, `model`, `dimension`
 
@@ -117,10 +112,12 @@ vim config.json   # replace every <PLACEHOLDER> with a real value
 
 `config.json` (once filled) is **plaintext on disk only between the wizard
 finishing and the server's first boot**. As soon as the web server starts,
-`auto_encrypt_config()` rewrites the `database`, `llm`, and `model_routing`
-sections in place, replacing the plaintext fields with an `_encrypted` blob
-(PBKDF2-derived key). The original plaintext is discarded; the server
-transparently decrypts on every subsequent read.
+`auto_encrypt_config()` rewrites sensitive fields in the `database`,
+`security`, `llm`, and `model_routing` sections in place, replacing them with
+AES-256-GCM `_encrypted` blobs derived through PBKDF2-HMAC-SHA512. This covers
+database credentials, the session-signing secret, and all configured API keys.
+Non-sensitive policy fields remain readable, while `config.json` and the local
+master key are always restricted to owner-only (`0600`) access.
 
 Manual encrypt / decrypt is also available:
 ```bash
@@ -139,7 +136,7 @@ python3.14 scripts/deploy_yashandb.py <user> <pass> <dsn> scripts/deploy/1_schem
 ```
 
 This runs the deploy scripts in `scripts/deploy/`:
-`1_schema.sql` → `2_api.sql` → `3_jobs.sql` → `4_harness_templates.sql`.
+`1_schema.sql` → `7_v4_0_1_migration.sql` → `2_api.sql` → `3_jobs.sql` → `4_harness_templates.sql`.
 
 ### Start the server
 
@@ -154,8 +151,7 @@ The portal is served at `http://<host>:8002/`. Default admin login:
 
 ## 5. API Surface
 
-All editions implement the contract in
-[api-contract/spec.md](https://github.com/openspec/ai-agent-infra).
+The primary management and Portal endpoints are listed below.
 
 | Endpoint                      | Method | Description                       |
 |-------------------------------|--------|-----------------------------------|
@@ -180,17 +176,6 @@ All editions implement the contract in
 python3.14 -m pytest scripts/tests/ -q --tb=no
 ```
 
-The release bar (per `test-requirements/spec.md`): zero failures and the test
-count must meet or exceed **109** for this edition. Current
-built-in test count: **109**.
-
-The shared `conftest.py` parameterizes database tests across backends. To
-restrict a run to this edition's backend:
-
-```bash
-AIAGENT_TEST_DB=yashandb python3.14 -m pytest scripts/tests/
-```
-
 ## 7. Community Edition Features
 
 - Full memory/knowledge/graph APIs
@@ -206,17 +191,5 @@ See `docs/` for in-depth material: `architecture.md`, `api-reference.md`,
 `visualization.md`, `workspace.md`, `harness.md`, `loop-engineering.md`.
 
 For AI agents working on this codebase, see `docs/AGENTS.md`.
-
-## 9. Provenance
-
-This package was generated by `build.py` from the unified source repository.
-To rebuild or customize, see the top-level `CHANGELOG.md` and `AGENTS.md` in
-the source tree.
-
-- Source repository: `/root/ai-agent-infra`
-- Build script: `build.py`
-- Edition config: `editions/yashandb-community.json`
-- Spec store: `/root/AI-Agent-Infra-Specs/openspec/specs/`
-- Build timestamp: 2026-07-19T22:37:22.387676
 
 ---
