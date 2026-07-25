@@ -1,6 +1,6 @@
-# AI Agent Infra with YashanDB — 社区版 v4.1.0
+# AI Agent Infra with YashanDB — 社区版 v4.2.0
 
-**版本**: v4.1.0 | **日期**: 2026-07-24 | **作者**: 尹海文 | **许可**: Apache License 2.0
+**版本**: v4.2.0 | **日期**: 2026-07-25 | **作者**: 尹海文 | **许可**: Apache License 2.0
 
 📄 **官方网站：https://db4agent.top**
 
@@ -158,7 +158,7 @@ v3.1.0 推出社区版与企业版双版本策略，满足开源社区与企业�
 | **DBMS_SCHEDULER 定时任务** | 记忆融合、知识提取、会话清理、审计日志清理等调度作业 |
 | **LIST + RANGE 复合分区** | ENTITIES 按 ENTITY_TYPE LIST 分区 × CREATED_AT RANGE 子分区，实现类型裁剪 + 时间归档 |
 
-> **注意**：YashanDB 不支持引用分区（Reference Partitioning）、JSON 关系对偶视图（JRD）、SQL/PGQ GRAPH_TABLE 语法。图算法（PageRank、最短路径、社区检测）在 Python 端实现，不依赖数据库内核图功能。
+> **注意**：YashanDB 不支持引用分区（Reference Partitioning）和 JSON 关系对偶视图（JRD）。v4.1 的关系型图查询保留共享关系边实现；v4.2.0 实验性 Graph Engineering 另外使用 YashanDB 原生 Property Graph 投影，运行时状态仍以关系型 Graph 表为权威。
 
 ### 4.2 分层架构
 
@@ -1427,3 +1427,21 @@ cd scripts && python -m tests.test_all
 
 - GitHub: [https://github.com/Haiwen-Yin](https://github.com/Haiwen-Yin)
 - 博客: [https://blog.csdn.net/yhw1809](https://blog.csdn.net/yhw1809)
+
+## v4.2.0 实验性 Graph Engineering
+
+v4.2.0 在 v4.1.0 的基础上增加数据库支撑的执行图能力，并以
+`experimental-4.2` 配置构建。它包含版本化 Graph Definition、确定性编译、
+持久化 Graph Run、State Event、Checkpoint、Worker 租约与 fencing、事件
+Inbox/Outbox、Artifact、评估、人工干预和 Task/Loop 兼容桥。原有关系型图
+探索仍然保留，新的执行图在 Dashboard 中提供定义、运行监控和证据视图。
+
+YashanDB 23.5.4+ 使用原生 Property Graph 投影；`GRAPH_*` 关系表仍是执行
+事务和恢复的权威来源，在原生图查询不适用时保留关系边操作。Worker 只获得
+受限输入和短期 Lease Token，不会获得 Schema Owner 凭证；过期 fencing token
+不能覆盖更新后的执行结果。
+
+v4.2.x 是实验性版本线，Graph 合约可以敏捷迭代，但每次破坏性变化必须新增
+定义或 Schema 版本，提供迁移或人工复核状态，并重新完成三数据库验证。待
+Graph Engineering 行业规范和项目合约稳定后，最新验证通过的 v4.2.x 可直接
+作为下一正式稳定版本基础，不维护第二套长期实现。

@@ -1,4 +1,6 @@
 #!/bin/bash
+# AI Agent Infra v4.2.0 - Community Edition - Web Server Control Script
+
 # Auto-generated start script for editions without a custom start_web_server.sh
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
