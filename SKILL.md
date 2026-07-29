@@ -1,6 +1,6 @@
 # SKILL.md - AI Agent Infra with YashanDB
 
-> **Version:** 4.2.0 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
+> **Version:** 4.3.0 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
 
 This is the operations guide for the AI Agent Infra with YashanDB
 release package. It covers everything an operator (human or AI Agent)
@@ -44,8 +44,10 @@ grants, server-attributed N-of-M approvals, emergency control, risk-based audit
 and evidence export, per-agent encryption keys, LDAP auth, compliance logs,
 skill tokens, and orchestrator approvals.
 
-v4.1.0 requires every external or platform-hosted Agent to register and
-authenticate before using non-bootstrap APIs. The Enterprise resource catalog
+v4.3.0 requires every human and external or platform-hosted Agent to resolve to
+an active database Principal before using non-bootstrap APIs. Agent enrollment
+uses a one-time user-sponsored token; Business Agents receive neither database
+credentials nor a Schema Owner fallback. The Enterprise resource catalog
 is authoritative for classification; unknown or sensitive resources without an
 explicit policy are denied. Approval, emergency, audit, retention, legal-hold,
 and evidence-export controls are enforced by the server and database rather
@@ -59,7 +61,7 @@ After extracting the release zip, you have:
 AI-Agent-Infra-with-YashanDB-{Community,Enterprise}-Edition/
 ├── SKILL.md                        # this file
 ├── CHANGELOG.md                    # full version history
-├── RELEASE_NOTES_v4.2.0.md   # this release's notes
+├── RELEASE_NOTES_v4.3.0.md   # this release's notes
 ├── NOTICE                          # third-party attributions
 ├── LICENSE  /  LICENSE_ENTERPRISE  # edition-specific license
 ├── requirements.txt                # pinned Python deps
@@ -72,7 +74,7 @@ AI-Agent-Infra-with-YashanDB-{Community,Enterprise}-Edition/
 │   ├── security.md
 │   ├── deployment.md
 │   └── ...
-├── vendor/                         # 29 pre-downloaded wheels + yaspy native libs (offline)
+├── vendor/                         # bundled wheels + yaspy native libs; verify before offline install
 │   └── yaspy/                      # yaspy driver + YashanDB client libs
 │       ├── yaspy.cpython-314-x86_64-linux-gnu.so
 │       └── client_lib/             # *.so.1.4.100 (symlinks created at install)
@@ -89,8 +91,18 @@ AI-Agent-Infra-with-YashanDB-{Community,Enterprise}-Edition/
     │   ├── 3_jobs.sql              #   DBMS_SCHEDULER jobs
     │   ├── 4_harness_templates.sql #   agent harness templates
     │   ├── 4_grants.sql            #   End User grants
-    │   ├── 8_v4_1_0_registration.sql # registered-Agent boundary
-    │   └── 8_v4_1_0_governance.sql   # Enterprise governance objects
+    │   ├── 8_v4_1_0_registration.sql # registered-Agent boundary (Community)
+    │   ├── 8_v4_1_0_governance.sql   # registration + governance (Enterprise)
+    │   ├── 9_v4_2_0_graph_engineering.sql
+    │   ├── 10_v4_2_0_graph_runtime.sql
+    │   ├── 11_v4_2_0_graph_control.sql
+    │   ├── 12_v4_2_0_graph_edge_scope.sql
+    │   ├── 13_v4_2_0_scheduler_ha.sql # Enterprise overlay only
+    │   ├── 14_v4_2_0_graph_triggers.sql
+    │   ├── 15_v4_2_1_executor_registry.sql # internal closure
+    │   ├── 16_v4_3_0_identity_channels.sql
+    │   ├── 17_v4_3_0_governance_lifecycle.sql
+    │   └── 18_v4_3_0_security_lifecycle.sql
     ├── lib/                        # business modules
     │   ├── connection.py           #   yaspy connection pool (VECTOR array->string)
     │   ├── config.py               #   config loader (auto-decrypts)
@@ -117,15 +129,22 @@ AI-Agent-Infra-with-YashanDB-{Community,Enterprise}-Edition/
 | Crypto package grant | required | ask DBA to grant execute on the built-in crypto package |
 | Memory | 2 GB free | for connection pool + vector search |
 
-## 4. Installation (offline-friendly)
+## 4. Installation (offline-capable runtime)
 
-The release zip is self-contained - no PyPI access needed. **Two install
-steps are required** (in this order):
+The compiled Web assets run without Node.js, npm, or network access. Python
+installation is offline only when every requirement in `requirements.txt` has
+an exact compatible wheel in `vendor/`; `verify_deps.py` is the release gate.
+**Two install steps are required** (in this order):
 
 ```bash
 # 1. Extract the zip
-unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.2.0.zip
+unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.3.0.zip
 cd AI-Agent-Infra-with-YashanDB-Enterprise-Edition
+
+# Select any accessible Python 3.14+ runtime; no vendor-specific path is required.
+source scripts/python_runtime.sh
+export PYTHON_BIN="$(cx_resolve_python)"
+cx_prepare_python_environment "$PYTHON_BIN"
 
 # 2. Install yaspy driver + YashanDB client libraries (REQUIRED FIRST)
 bash scripts/install_yaspy.sh
@@ -138,8 +157,20 @@ bash scripts/install_yaspy.sh
 bash scripts/install_offline.sh
 
 # 4. Verify all dependencies are present
-python3 scripts/verify_deps.py
+"$PYTHON_BIN" scripts/verify_deps.py
 ```
+
+The installer fails closed when a required wheel is missing or incompatible;
+obtain the missing release dependencies from the approved internal mirror
+before retrying.
+
+`vendor/` may contain both the upstream `cryptography==49.0.0` wheel for
+glibc 2.34+ and the RHEL 8/glibc 2.28 source-built wheel. The installer and
+`verify_deps.py` select the compatible one automatically. Customers on newer
+systems do not need to rebuild cryptography; the reproducible source-build
+procedure is documented in `docs/cryptography-build.md`.
+The current v4.3.0 archive includes the verified glibc 2.28 wheel; do not
+rename the `manylinux_2_34` wheel or substitute an older cryptography release.
 
 `deploy_yashandb.py` automatically invokes `install_yaspy.sh` before
 deploying, so you can skip step 2 if you go straight to schema deployment.
@@ -181,8 +212,8 @@ server enforces owner-only (`0600`) permissions and decrypts transparently.
 
 Manual encrypt / decrypt:
 ```bash
-python3 scripts/tools/encrypt_config.py encrypt config.json
-python3 scripts/tools/encrypt_config.py decrypt config.json
+"$PYTHON_BIN" scripts/tools/encrypt_config.py encrypt config.json
+"$PYTHON_BIN" scripts/tools/encrypt_config.py decrypt config.json
 ```
 
 ## 6. Database Schema Deployment
@@ -193,7 +224,7 @@ and automatically invokes `install_yaspy.sh` first if needed.
 
 ```bash
 # Deploy schema + API packages + jobs + grants (Enterprise)
-python3 scripts/deploy_yashandb.py <user> <password> <host>:1688/<service> \
+"$PYTHON_BIN" scripts/deploy_yashandb.py <user> <password> <host>:1688/<service> \
     scripts/deploy/1_schema.sql \
     scripts/deploy/2_api.sql \
     scripts/deploy/3_jobs.sql \
@@ -208,6 +239,17 @@ curl http://localhost:<port>/api/agent/deployment-check
 
 The schema script `1_schema.sql` is idempotent - it auto-aborts if
 `SYSTEM_CONFIG.schema_version` already exists.
+
+For the integrated v4.3.0 profile, use `scripts/migration_runner.py` for the
+additive migration tail. Community applies these nine scripts in order:
+`9_v4_2_0_graph_engineering.sql`, `10_v4_2_0_graph_runtime.sql`,
+`11_v4_2_0_graph_control.sql`, `12_v4_2_0_graph_edge_scope.sql`,
+`14_v4_2_0_graph_triggers.sql`, `15_v4_2_1_executor_registry.sql`,
+`16_v4_3_0_identity_channels.sql`, and
+`17_v4_3_0_governance_lifecycle.sql`, and
+`18_v4_3_0_security_lifecycle.sql`. Enterprise inserts
+`13_v4_2_0_scheduler_ha.sql` between `12` and `14`, for ten scripts total.
+The internal `15` step is part of v4.3.0 and is not a public v4.2.1 release.
 
 ## 7. Start the Server
 
@@ -232,17 +274,17 @@ database credentials:
 
 ```bash
 # Register a new Business Agent
-python3 scripts/agent_bootstrap.py register \
+"$PYTHON_BIN" scripts/agent_bootstrap.py register \
     --agent-id MY_AGENT \
     --agent-name "My Business Agent" \
     --admin-token AT_xxx \
     --admin-url http://<admin-host>:<port>
 
 # Test the resulting connection
-python3 scripts/agent_bootstrap.py test
+"$PYTHON_BIN" scripts/agent_bootstrap.py test
 
 # Recover if the agent crashed and lost credentials
-python3 scripts/agent_bootstrap.py recover \
+"$PYTHON_BIN" scripts/agent_bootstrap.py recover \
     --agent-id MY_AGENT \
     --recovery-code RC-XXXX-XXXX-XXXX \
     --admin-token AT_xxx \
@@ -288,6 +330,20 @@ Once the server is running, these endpoints are available:
 
 Full API details: `docs/api-reference.md`.
 
+### Canonical And Legacy Entry Points
+
+New integrations use the authenticated FastAPI service (`web_app:app`) and
+its Principal-aware `/api/auth/*`, resource, Graph, Channel, Barrier, Gateway,
+and governance routes, or the equivalent HTTP/MCP/Skill workflow. The
+established Dashboard, Portal, and Agent paths are retained through the
+request-local compatibility bridge to `visualization/server.py`; the bridge
+does not open a second listener or grant direct database access. Legacy callers
+remain subject to session, CSRF, Agent identity, and permission checks. The
+`production` runtime profile exposes the integrated v4.3.0 stable core and is
+the current production recommendation; the v4.3.0 release and closure evidence
+are PASS. `graph-preview` and `development` remain explicitly controlled
+profiles for experimental capabilities.
+
 ## 10. Security Model
 
 | Layer | Mechanism |
@@ -307,10 +363,10 @@ authentication and failed policy checks never fall back to the Admin pool.
 
 ```bash
 # Run the full test suite
-python3 -m pytest scripts/tests/ -v
+"$PYTHON_BIN" -m pytest scripts/tests/ -v
 
 # Or the legacy runner
-cd scripts && python -m tests.test_all
+cd scripts && "$PYTHON_BIN" -m tests.test_all
 ```
 
 Tests use the configured `config.json` connection. Set
@@ -333,18 +389,33 @@ Tests use the configured `config.json` connection. Set
 
 Server log: `viz_server.log` in the project directory.
 
-## 14. v4.2.0 Experimental Graph Engineering
+## 14. v4.3.0 Integrated Graph Engineering and Governed Collaboration
 
-This package uses the `experimental-4.2` profile. It adds versioned Graph
-Definitions, deterministic compilation, durable Graph Runs, State Events,
-Checkpoints, Workers, Event Inbox/Outbox, Artifacts, evaluators, and
-reason-required interventions while preserving the v4.1 Graph Explorer and
-Task/Loop compatibility.
+This package uses the v4.3.0 shared code line. It includes the internal v4.2.1
+Graph closure: versioned Graph Definitions, deterministic compilation, durable
+Graph Runs, State Events, Checkpoints, Workers, Event Inbox/Outbox, Artifacts,
+evaluators, reason-required interventions, a versioned Node Executor registry,
+bounded delivery attempts, dead-letter replay, and operator governance events.
+The internal v4.2.1 milestone is not a separately published package.
+
+The migration tail above is part of the same profile and must be applied
+through the checksum ledger before using the new Graph, Channel, Barrier, or
+governance lifecycle objects.
 
 YashanDB 23.5.4+ exposes the execution topology through its native Property
 Graph projection. Relational `GRAPH_*` runtime tables remain the transaction
 and recovery authority, and portable relational edge operations remain
 available when a native graph query is not applicable.
+
+Human and Agent activity is governed by the same Principal and database-backed
+Session boundary. A permitted user creates a one-time Enrollment Token that
+fixes sponsorship, owner, runtime, environment, risk tier, quota, and Security
+Domain. A Channel is a collaboration view, not an authorization grant: it
+cannot enlarge database, API, Skill, Tool, model, memory, Artifact, or export
+access. Barrier arrivals and decisions are durable and attributable. The Agent
+Gateway delivers channel events through short-lived instance tokens, fencing,
+acknowledgement, retry, and dead-letter rules; web restart recovery is scoped to
+the local node.
 
 ### Agent Skill Workflow
 
@@ -374,15 +445,41 @@ fencing token; stale tokens cannot overwrite a newer Attempt. Use
 a process restart. Existing Task Plan and Loop behavior remains available
 through the v4.1 compatibility bridge.
 
-The v4.2.x Graph contract is experimental and may evolve. Breaking changes
-require a new definition/schema version, migration or review state, and new
-release evidence. The latest validated v4.2.x release can graduate to the next
-Stable line without maintaining a second implementation.
+### Executor and delivery operations
+
+Executors are declarative manifests, not arbitrary Python, SQL, shell, or
+network callbacks. Built-in `CONTROL`, `WORKER`, and `WAIT` Executors are
+resolved for every node before claim and completion. Custom manifests require
+an authenticated registration actor; disabling or deprecating one requires a
+reason and affects new claims only.
+
+```bash
+curl -b cookies.txt 'http://localhost:<port>/api/graph-executors?include_inactive=true'
+curl -b cookies.txt http://localhost:<port>/api/graph/events/inbox
+curl -b cookies.txt http://localhost:<port>/api/graph/events/dead-letter
+curl -b cookies.txt http://localhost:<port>/api/graph/events/outbox
+curl -b cookies.txt -H 'Content-Type: application/json' \
+  -d '{"reason":"verified downstream availability"}' \
+  http://localhost:<port>/api/graph/events/inbox/<inbox_id>/replay
+```
+
+The database stores attempt counters, next-available time, maximum attempts,
+and terminal `DEAD_LETTER` state. Non-idempotent external work is not blindly
+replayed after an uncertain outcome.
+
+The Graph contract may evolve within the v4.3.x maturity cycle. Breaking
+changes require a new definition/schema version, migration or review state,
+and new release evidence. The v4.3.0 production profile is the current
+production baseline; v4.1.x remains available as the prior baseline.
+Graduation is controlled by configuration and evidence, not a second code line.
 
 ## 13. Offline Deployment
 
-The release zip is fully self-contained:
-- `vendor/` - 29 wheels + yaspy native driver (no PyPI access needed)
+The release zip contains the compiled Web runtime and the bundled dependency
+set. The Web assets require no Node.js, npm, or network access. Python is
+offline-installable only after `scripts/verify_deps.py` reports PASS; the
+installer fails closed when a required wheel is absent or incompatible.
+- `vendor/` - bundled Python wheels + yaspy native driver
 - `vendor/yaspy/` - yaspy driver + YashanDB client libraries
 - `scripts/install_yaspy.sh` - native driver install (recreates .so symlinks)
 - `scripts/install_offline.sh` - installs remaining wheels
