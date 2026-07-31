@@ -1,6 +1,6 @@
 # SKILL.md - AI Agent Infra with YashanDB
 
-> **Version:** 4.3.0 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
+> **Version:** 4.3.1 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
 
 This is the operations guide for the AI Agent Infra with YashanDB
 release package. It covers everything an operator (human or AI Agent)
@@ -44,7 +44,7 @@ grants, server-attributed N-of-M approvals, emergency control, risk-based audit
 and evidence export, per-agent encryption keys, LDAP auth, compliance logs,
 skill tokens, and orchestrator approvals.
 
-v4.3.0 requires every human and external or platform-hosted Agent to resolve to
+v4.3.1 requires every human and external or platform-hosted Agent to resolve to
 an active database Principal before using non-bootstrap APIs. Agent enrollment
 uses a one-time user-sponsored token; Business Agents receive neither database
 credentials nor a Schema Owner fallback. The Enterprise resource catalog
@@ -52,6 +52,12 @@ is authoritative for classification; unknown or sensitive resources without an
 explicit policy are denied. Approval, emergency, audit, retention, legal-hold,
 and evidence-export controls are enforced by the server and database rather
 than by Dashboard visibility.
+
+The Organization workspace is a governed query and change interface. Agents
+may discover only organization facts allowed by their authenticated Principal
+and `organizations.*` scope. Reading this Skill does not grant graphical edit,
+Human administration, directory synchronization, or publication authority.
+Relational facts remain authoritative; the native graph is a projection only.
 
 ## 2. Package Contents
 
@@ -61,7 +67,7 @@ After extracting the release zip, you have:
 AI-Agent-Infra-with-YashanDB-{Community,Enterprise}-Edition/
 ├── SKILL.md                        # this file
 ├── CHANGELOG.md                    # full version history
-├── RELEASE_NOTES_v4.3.0.md   # this release's notes
+├── RELEASE_NOTES_v4.3.1.md   # this release's notes
 ├── NOTICE                          # third-party attributions
 ├── LICENSE  /  LICENSE_ENTERPRISE  # edition-specific license
 ├── requirements.txt                # pinned Python deps
@@ -102,7 +108,8 @@ AI-Agent-Infra-with-YashanDB-{Community,Enterprise}-Edition/
     │   ├── 15_v4_2_1_executor_registry.sql # internal closure
     │   ├── 16_v4_3_0_identity_channels.sql
     │   ├── 17_v4_3_0_governance_lifecycle.sql
-    │   └── 18_v4_3_0_security_lifecycle.sql
+    │   ├── 18_v4_3_0_security_lifecycle.sql
+    │   └── 19_v4_3_1_organization_governance.sql
     ├── lib/                        # business modules
     │   ├── connection.py           #   yaspy connection pool (VECTOR array->string)
     │   ├── config.py               #   config loader (auto-decrypts)
@@ -138,7 +145,7 @@ an exact compatible wheel in `vendor/`; `verify_deps.py` is the release gate.
 
 ```bash
 # 1. Extract the zip
-unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.3.0.zip
+unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.3.1.zip
 cd AI-Agent-Infra-with-YashanDB-Enterprise-Edition
 
 # Select any accessible Python 3.14+ runtime; no vendor-specific path is required.
@@ -169,7 +176,7 @@ glibc 2.34+ and the RHEL 8/glibc 2.28 source-built wheel. The installer and
 `verify_deps.py` select the compatible one automatically. Customers on newer
 systems do not need to rebuild cryptography; the reproducible source-build
 procedure is documented in `docs/cryptography-build.md`.
-The current v4.3.0 archive includes the verified glibc 2.28 wheel; do not
+The current v4.3.1 archive includes the verified glibc 2.28 wheel; do not
 rename the `manylinux_2_34` wheel or substitute an older cryptography release.
 
 `deploy_yashandb.py` automatically invokes `install_yaspy.sh` before
@@ -339,8 +346,8 @@ established Dashboard, Portal, and Agent paths are retained through the
 request-local compatibility bridge to `visualization/server.py`; the bridge
 does not open a second listener or grant direct database access. Legacy callers
 remain subject to session, CSRF, Agent identity, and permission checks. The
-`production` runtime profile exposes the integrated v4.3.0 stable core and is
-the current production recommendation; the v4.3.0 release and closure evidence
+`production` runtime profile exposes the integrated v4.3.1 stable core and is
+the current production recommendation; the v4.3.1 release and closure evidence
 are PASS. `graph-preview` and `development` remain explicitly controlled
 profiles for experimental capabilities.
 
@@ -469,7 +476,7 @@ replayed after an uncertain outcome.
 
 The Graph contract may evolve within the v4.3.x maturity cycle. Breaking
 changes require a new definition/schema version, migration or review state,
-and new release evidence. The v4.3.0 production profile is the current
+and new release evidence. The v4.3.1 production profile is the current
 production baseline; v4.1.x remains available as the prior baseline.
 Graduation is controlled by configuration and evidence, not a second code line.
 
