@@ -1,4 +1,4 @@
-"""AI Agent Infra v4.3.1 - Community Edition - Web Visualization Server
+"""AI Agent Infra v4.3.2 - Community Edition - Web Visualization Server
 
 Lightweight HTTP server providing session-based auth, page routing,
 and JSON API endpoints for knowledge, memory, agents, tasks, workspaces,
@@ -24,7 +24,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from lib import connection, memory_api, knowledge_api, agent_api
+from lib import connection, memory_api, memory_lifecycle, knowledge_api, agent_api
 from lib import task_plan_api, workspace_api, harness_api, graph_api
 from lib import spec_api, collab_api, branch_api
 from lib import security, config, user_api
@@ -49,7 +49,7 @@ if edition_features.has_feature('governance'):
 else:
     governance_api = None
 
-VERSION = "4.3.1"
+VERSION = "4.3.2"
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), 'templates')
 STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
@@ -150,8 +150,13 @@ def _is_admin_role(role):
 
 def _get_cookie_name():
     """Return port-specific cookie name to avoid cross-port session conflicts."""
-    cfg = _load_server_config()
-    return f"session_id_{cfg.port}"
+    # FastAPI is the network entrypoint from v4.3.0 onward.  Legacy page/API
+    # handlers run in-process behind it, so they must use its runtime port
+    # rather than the packaged config.json default (normally 8000).
+    port = os.environ.get('MEMORY_SERVER_PORT', '').strip()
+    if not port:
+        port = str(_load_server_config().port)
+    return f"session_id_{port}"
 
 def _load_server_config():
     cfg = config.get_config()
@@ -594,17 +599,50 @@ def _knowledge_to_vis():
 
 def _memory_to_vis():
     items = memory_api.search_memories(limit=500)
-    eids = [i['entity_id'] for i in items]
+    version_ids = [str(i.get('version_id')) for i in items if i.get('version_id')]
+    eids = [i['entity_id'] for i in items if i.get('entity_id')]
     tags_map = _get_tags_for_entities(eids)
-    mem_edges = connection.execute_query(
-        "SELECT source_id, target_id, edge_type, strength FROM entity_edges "
-        "WHERE source_type = 'MEMORY' OR target_id IN (%s)"
-        % ','.join(["'%s'" % eid for eid in eids]) if eids else "FALSE",
-    ) if eids else []
+    try:
+        # Do not let the library's newest-500 window hide valid relationships
+        # whose current endpoint falls just outside that display window.
+        mem_edges = connection.execute_query(
+            "SELECT r.SOURCE_VERSION_ID AS source_id, r.TARGET_VERSION_ID AS target_id, r.RELATION_TYPE AS edge_type, "
+            "COALESCE(r.CONFIDENCE, 1) AS strength FROM CX_MEMORY_RELATIONS r "
+            "WHERE r.RELATION_STATE = 'ACTIVE' AND ("
+            "r.SOURCE_VERSION_ID IN (SELECT CURRENT_VERSION_ID FROM CX_MEMORY_FAMILIES WHERE CURRENT_VERSION_ID IS NOT NULL) "
+            "OR r.TARGET_VERSION_ID IN (SELECT CURRENT_VERSION_ID FROM CX_MEMORY_FAMILIES WHERE CURRENT_VERSION_ID IS NOT NULL)) "
+            "FETCH FIRST 1000 ROWS ONLY",
+            {},
+        )
+    except Exception:
+        mem_edges = connection.execute_query(
+            "SELECT source_id, target_id, edge_type, strength FROM entity_edges "
+            "WHERE source_type = 'MEMORY' OR target_id IN (%s)" % ','.join(["'%s'" % eid for eid in eids]) if eids else "FALSE",
+        ) if eids else []
+    endpoint_ids = {
+        str(value)
+        for edge in mem_edges
+        for value in (edge.get('source_id'), edge.get('target_id'))
+        if value and str(value) not in set(version_ids)
+    }
+    related_versions = []
+    if endpoint_ids:
+        params = {f"v{i}": value for i, value in enumerate(sorted(endpoint_ids)[:250])}
+        related_versions = connection.execute_query(
+            "SELECT v.VERSION_ID,v.TITLE,v.VERSION_NUMBER,v.MEMORY_TYPE,v.MEMORY_SCOPE,v.LIFECYCLE_STATE,v.CLASSIFICATION,"
+            "f.FAMILY_ID,CASE WHEN f.CURRENT_VERSION_ID=v.VERSION_ID THEN 1 ELSE 0 END AS IS_CURRENT "
+            "FROM CX_MEMORY_VERSIONS v LEFT JOIN CX_MEMORY_FAMILIES f ON f.FAMILY_ID=v.FAMILY_ID WHERE v.VERSION_ID IN ({})".format(
+                ','.join(f":v{i}" for i in range(len(params)))
+            ),
+            params,
+        )
     nodes = []
     for item in items:
         nodes.append({
-            'id': item['entity_id'],
+            'id': item.get('version_id') or item['entity_id'],
+            'family_id': item.get('family_id'),
+            'version_id': item.get('version_id'),
+            'version_number': item.get('version_number'),
             'label': (item.get('title') or '')[:60],
             'group': item.get('category') or 'general',
             'title': item.get('summary') or item.get('title') or '',
@@ -612,10 +650,32 @@ def _memory_to_vis():
             'importance': item.get('importance', 5),
             'content': item.get('content') or '',
             'summary': item.get('summary') or '',
-            'category': item.get('category') or '',
+            'category': item.get('memory_type') or item.get('category') or '',
+            'memory_scope': item.get('memory_scope') or '',
+            'lifecycle_state': item.get('lifecycle_state') or item.get('status') or '',
             'visibility': item.get('visibility') or '',
             'owned_by_agent': item.get('owned_by_agent') or '',
             'tags': tags_map.get(item['entity_id'], []),
+        })
+    # A current-memory view needs the linked historical endpoints; otherwise
+    # valid lineage edges are silently dropped by the client graph renderer.
+    for item in related_versions:
+        is_current = str(item.get('is_current') or '0').upper() in {'1', 'Y', 'TRUE'}
+        nodes.append({
+            'id': item['version_id'],
+            'family_id': item.get('family_id'),
+            'version_id': item['version_id'],
+            'version_number': item.get('version_number'),
+            'label': '{} · V{}'.format(item.get('title') or item['version_id'], item.get('version_number') or '?')[:80],
+            'group': 'MEMORY' if is_current else 'MEMORY_LINEAGE',
+            'entity_type': 'MEMORY' if is_current else 'MEMORY_LINEAGE',
+            'title': 'Current Memory metadata.' if is_current else 'Historical lineage metadata only; this version is not returned to runtime context.',
+            'category': item.get('memory_type') or '',
+            'memory_scope': item.get('memory_scope') or '',
+            'lifecycle_state': item.get('lifecycle_state') or '',
+            'classification': item.get('classification') or '',
+            'history_node': not is_current,
+            'color': None if is_current else {'background': '#80909a', 'border': '#52636d'},
         })
     vis_edges = []
     for e in mem_edges:
@@ -726,7 +786,7 @@ class VisHandler(BaseHTTPRequestHandler):
         role = str(sess.get('role') or 'USER').upper()
         groups = {'ADMIN', 'SECURITY', 'AUDIT', 'APPROVAL'} if _is_admin_role(role) else set()
         return {
-            'actor_id': str(sess.get('username') or sess.get('user_id') or ''),
+            'actor_id': str(sess.get('principal_id') or sess.get('user_id') or sess.get('username') or ''),
             'actor_type': 'HUMAN',
             'role': role,
             'groups': sorted(groups),
@@ -967,6 +1027,10 @@ class VisHandler(BaseHTTPRequestHandler):
             self._handle_governance_post(path)
             return
 
+        if path == '/api/memory' or path.startswith('/api/memory/'):
+            self._handle_memory_lifecycle_post(path)
+            return
+
         if path == '/api/skill/create':
             self._handle_skill_create_route()
             return
@@ -1170,6 +1234,184 @@ class VisHandler(BaseHTTPRequestHandler):
 
     def _graph_actor(self) -> str:
         return self._authenticated_actor()
+
+    def _handle_memory_lifecycle_post(self, path):
+        """Versioned Memory mutations.  The session Principal is authoritative."""
+        try:
+            data = json.loads(self._read_body() or b'{}')
+        except Exception:
+            self._send_error(400, 'Invalid JSON')
+            return
+        try:
+            principal = self._authenticated_principal()
+            actor = str(principal.get('actor_id') or '')
+            if not actor:
+                raise PermissionError('authenticated principal is unavailable')
+            if path.startswith('/api/memory/snapshots/') and path.endswith('/refresh'):
+                snapshot_id = path.split('/')[4]
+                result = memory_lifecycle.refresh_snapshot(
+                    snapshot_id, actor=actor, token_budget=int(data.get('token_budget') or 2048),
+                    reason=str(data.get('reason') or ''), idempotency_key=data.get('idempotency_key'),
+                    expected_snapshot_version=data.get('expected_snapshot_version'),
+                )
+                self._send_json(result, 201)
+                return
+            if path.startswith('/api/memory/jobs/') and path.endswith('/cancel'):
+                if self._require_admin() is None:
+                    return
+                self._send_json({'success': memory_lifecycle.cancel_job(
+                    path.split('/')[4], actor=actor, reason=str(data.get('reason') or ''),
+                )})
+                return
+            if path.startswith('/api/memory/jobs/') and path.endswith('/retry'):
+                if self._require_admin() is None:
+                    return
+                self._send_json({'success': memory_lifecycle.retry_job(
+                    path.split('/')[4], actor=actor, reason=str(data.get('reason') or ''),
+                )})
+                return
+            if path == '/api/memory/projections/rebuild':
+                if self._require_admin() is None:
+                    return
+                self._send_json(memory_lifecycle.request_projection_rebuild(
+                    actor=actor, limit=int(data.get('limit') or 500), reason=str(data.get('reason') or ''),
+                ), 202)
+                return
+            if path.startswith('/api/memory/candidates/') and path.endswith('/activate'):
+                if self._require_admin() is None:
+                    return
+                candidate_id = path.split('/')[4]
+                self._send_json(memory_lifecycle.activate_candidate(
+                    candidate_id, actor=actor, reason=str(data.get('reason') or ''),
+                ))
+                return
+            if path == '/api/memory/jobs/run-once':
+                if self._require_admin() is None:
+                    return
+                worker_id = str(data.get('worker_id') or f"web-{_portal_node_id()}")
+                self._send_json({'result': memory_lifecycle.run_job_once(
+                    worker_id, lease_seconds=int(data.get('lease_seconds') or 120),
+                )})
+                return
+            if path == '/api/memory/snapshots':
+                result = memory_lifecycle.create_snapshot(
+                    str(data.get('run_id') or ''), actor=actor,
+                    purpose=str(data.get('purpose') or 'RUNTIME_CONTEXT'),
+                    token_budget=int(data.get('token_budget') or 2048),
+                    idempotency_key=data.get('idempotency_key'),
+                )
+                self._send_json(result, 201)
+                return
+            if path == '/api/memory':
+                result = memory_lifecycle.create_family(data, actor=actor, idempotency_key=data.get('idempotency_key'))
+                self._send_json(result, 201)
+                return
+            parts = [part for part in path.split('/') if part]
+            family_id = parts[2] if len(parts) > 2 else ''
+            action = parts[3] if len(parts) > 3 else ''
+            if action == 'versions':
+                result = memory_lifecycle.create_successor(
+                    family_id, str(data.get('expected_version_id') or ''), data, actor=actor,
+                    idempotency_key=data.get('idempotency_key'),
+                )
+                self._send_json(result, 201)
+                return
+            if action == 'unavailable':
+                result = memory_lifecycle.mark_unavailable(
+                    family_id, actor=actor, reason=str(data.get('reason') or ''),
+                    expected_version_id=data.get('expected_version_id'),
+                )
+                self._send_json(result)
+                return
+            if action == 'quarantine':
+                if self._require_admin() is None:
+                    return
+                result = memory_lifecycle.quarantine_family(
+                    family_id, actor=actor, reason=str(data.get('reason') or ''),
+                    expected_version_id=data.get('expected_version_id'),
+                )
+                self._send_json(result)
+                return
+            if action == 'organize':
+                result = memory_lifecycle.organize_memory(
+                    str(data.get('version_id') or ''), actor=actor, dry_run=bool(data.get('dry_run', True)),
+                    token_budget=int(data.get('token_budget') or 256),
+                )
+                self._send_json(result, 200)
+                return
+            if action == 'archive':
+                if self._require_admin() is None:
+                    return
+                self._send_json({'success': memory_lifecycle.archive_version(
+                    str(data.get('version_id') or ''), actor=actor, reason=str(data.get('reason') or ''),
+                    cold=bool(data.get('cold', True)),
+                )})
+                return
+            if action == 'discover-relations':
+                result = memory_lifecycle.discover_relations(
+                    str(data.get('version_id') or ''), actor=actor, limit=int(data.get('limit') or 50),
+                    token_budget=int(data.get('token_budget') or 8192),
+                )
+                self._send_json(result)
+                return
+            if action == 'representations':
+                representation_id = memory_lifecycle.create_representation(
+                    str(data.get('version_id') or ''), str(data.get('representation_type') or ''),
+                    str(data.get('body') or ''), generator_version=str(data.get('generator_version') or 'deterministic-v1'),
+                    source_version_ids=data.get('source_version_ids') or [],
+                )
+                self._send_json({'representation_id': representation_id}, 201)
+                return
+            if action == 'relations':
+                relation_id = memory_lifecycle.create_relation(
+                    str(data.get('source_version_id') or ''), str(data.get('target_version_id') or ''),
+                    str(data.get('relation_type') or ''), deterministic=bool(data.get('deterministic')),
+                    confidence=data.get('confidence'), method=str(data.get('method') or 'rule-v1'),
+                    evidence=data.get('evidence') or {}, actor=actor,
+                )
+                self._send_json({'relation_id': relation_id}, 201)
+                return
+            if action == 'candidates':
+                result = memory_lifecycle.create_candidate(
+                    str(data.get('candidate_type') or ''), str(data.get('source_version_id') or ''), data.get('proposed') or {},
+                    actor=actor, confidence=data.get('confidence'), reason=str(data.get('reason') or ''),
+                    idempotency_key=data.get('idempotency_key'),
+                )
+                self._send_json(result, 201)
+                return
+            if action == 'jobs':
+                if self._require_admin() is None:
+                    return
+                result = memory_lifecycle.create_job(
+                    str(data.get('job_type') or 'CONSOLIDATE'), actor=actor, scope=data.get('scope') or {},
+                    dry_run=bool(data.get('dry_run', True)), reason=str(data.get('reason') or ''),
+                    idempotency_key=data.get('idempotency_key'),
+                )
+                self._send_json(result, 201)
+                return
+            if action == 'usage':
+                event_id = memory_lifecycle.record_usage(
+                    str(data.get('version_id') or ''), str(data.get('event_type') or 'RETRIEVED'),
+                    principal_id=actor, agent_id=data.get('agent_id'), run_id=data.get('run_id'),
+                    purpose=str(data.get('purpose') or 'RUNTIME_CONTEXT'), outcome=data.get('outcome'),
+                    value=data.get('value'), idempotency_key=data.get('idempotency_key'), metadata=data.get('metadata') or {},
+                )
+                self._send_json({'usage_event_id': event_id}, 201)
+                return
+            if action == 'reviews' and len(parts) > 4:
+                if self._require_admin() is None:
+                    return
+                ok = memory_lifecycle.review_candidate(parts[4], str(data.get('decision') or ''), reviewer=actor, reason=str(data.get('reason') or ''))
+                self._send_json({'success': ok})
+                return
+            self._send_error(404, 'Memory lifecycle route not found')
+        except PermissionError as exc:
+            self._send_json({'error': str(exc)}, 403)
+        except memory_lifecycle.MemoryLifecycleError as exc:
+            self._send_json({'error': str(exc), 'code': exc.code}, 409 if exc.code == 'VERSION_CONFLICT' else 400)
+        except Exception as exc:
+            logger.exception('memory lifecycle request failed')
+            self._send_json({'error': str(exc)}, 500)
 
     def _handle_graph_post(self, path):
         """Graph definition lifecycle endpoints share one service contract."""
@@ -1783,6 +2025,44 @@ class VisHandler(BaseHTTPRequestHandler):
                 self._send_json(_knowledge_to_vis())
             elif path == '/api/memory':
                 self._send_json(_memory_to_vis())
+            elif path == '/api/memory/jobs':
+                self._send_json({'jobs': memory_lifecycle.list_jobs(int(qs.get('limit', ['100'])[0]))})
+            elif path == '/api/memory/projections/metrics':
+                self._send_json(memory_lifecycle.projection_metrics())
+            elif path.startswith('/api/memory/snapshots/') and path.endswith('/diff'):
+                snapshot_id = path.split('/')[4]
+                self._send_json(memory_lifecycle.snapshot_diff(snapshot_id))
+            elif path.startswith('/api/memory/snapshots/') and path.endswith('/resolve'):
+                snapshot_id = path.split('/')[4]
+                self._send_json(memory_lifecycle.resolve_snapshot(
+                    snapshot_id, continuation=qs.get('continuation', ['PAUSE'])[0],
+                ))
+            elif path == '/api/memory/policies':
+                self._send_json({'policies': connection.execute_query(
+                    'SELECT POLICY_ID, POLICY_NAME, POLICY_VERSION, STATUS, POLICY_JSON, UPDATED_AT FROM CX_MEMORY_POLICIES ORDER BY UPDATED_AT DESC FETCH FIRST :lim ROWS ONLY',
+                    {'lim': max(1, min(int(qs.get('limit', ['100'])[0]), 200))},
+                )})
+            elif path == '/api/memory/candidates':
+                self._send_json({'candidates': connection.execute_query(
+                    'SELECT CANDIDATE_ID, CANDIDATE_TYPE, SOURCE_VERSION_ID, TARGET_VERSION_ID, CONFIDENCE, STATUS, POLICY_RESULT, CREATED_BY, REASON, CREATED_AT, UPDATED_AT FROM CX_MEMORY_CANDIDATES ORDER BY UPDATED_AT DESC FETCH FIRST :lim ROWS ONLY',
+                    {'lim': max(1, min(int(qs.get('limit', ['100'])[0]), 200))},
+                )})
+            elif path.startswith('/api/memory/') and path.endswith('/chain'):
+                family_id = path.split('/')[3]
+                detail = memory_lifecycle.get_family(family_id)
+                if not detail or not detail.get('current'):
+                    self._send_error(404, 'Memory family not found')
+                    return
+                self._send_json(memory_lifecycle.chain(
+                    str(detail['current']['version_id']), hops=int(qs.get('hops', ['2'])[0]), limit=int(qs.get('limit', ['100'])[0]),
+                ))
+            elif path.startswith('/api/memory/'):
+                family_id = path.split('/')[3]
+                detail = memory_lifecycle.get_family(family_id, include_history=qs.get('history', ['false'])[0].lower() == 'true')
+                if not detail:
+                    self._send_error(404, 'Memory family not found')
+                    return
+                self._send_json(detail)
             elif path == '/api/agents':
                 self._api_agents()
             elif path == '/api/graphs':
@@ -4091,8 +4371,8 @@ class VisHandler(BaseHTTPRequestHandler):
             with open(filepath, 'r', encoding='utf-8') as f:
                 html = f.read()
             timeout = _session_timeout()
-            html = html.replace('4.3.1', VERSION)
-            html = html.replace('2026-07-31', os.environ.get('AI_AGENT_RELEASE_DATE', ''))
+            html = html.replace('4.3.2', VERSION)
+            html = html.replace('2026-08-01', os.environ.get('AI_AGENT_RELEASE_DATE', ''))
             html = html.replace('{{DB_DISPLAY}}', _product_database_display())
             html = html.replace('{{EDITION_TIER}}', _product_tier())
             html = html.replace(
