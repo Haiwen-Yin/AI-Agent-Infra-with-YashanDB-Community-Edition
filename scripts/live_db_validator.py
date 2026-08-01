@@ -95,6 +95,37 @@ V431_MIGRATION_SCRIPTS = V43_MIGRATION_SCRIPTS + (
     "22_v4_3_1_identity_organization_alignment.sql",
 )
 
+V432_MIGRATION_SCRIPTS = V431_MIGRATION_SCRIPTS + (
+    "23_v4_3_2_memory_lifecycle.sql",
+    "24_v4_3_2_memory_digest_alignment.sql",
+    "25_v4_3_2_disable_legacy_memory_fusion.sql",
+    "26_v4_3_2_snapshot_subject_fencing.sql",
+    "27_v4_3_2_memory_governance_completion.sql",
+)
+
+V432_MEMORY_TABLES = (
+    "CX_MEMORY_FAMILIES", "CX_MEMORY_VERSIONS", "CX_MEMORY_REPRESENTATIONS",
+    "CX_MEMORY_RELATIONS", "CX_MEMORY_SNAPSHOTS", "CX_MEMORY_SNAPSHOT_MEMBERS",
+    "CX_MEMORY_POLICIES", "CX_MEMORY_JOBS", "CX_MEMORY_JOB_ITEMS",
+    "CX_MEMORY_USAGE_EVENTS", "CX_MEMORY_CANDIDATES", "CX_MEMORY_REVIEWS",
+    "CX_MEMORY_PROJECTION_OUTBOX",
+    "CX_MEMORY_VERSION_ARTIFACTS", "CX_MEMORY_INGESTION_FINDINGS", "CX_MEMORY_WORKER_RESULTS",
+)
+
+V432_MEMORY_REQUIRED_COLUMNS = {
+    "CX_MEMORY_FAMILIES": frozenset({"FAMILY_ID", "CURRENT_VERSION_ID", "LEGACY_ENTITY_ID", "ROW_VERSION"}),
+    "CX_MEMORY_VERSIONS": frozenset({"VERSION_ID", "FAMILY_ID", "VERSION_NUMBER", "CONTENT_DIGEST", "MEMORY_TYPE", "MEMORY_SCOPE", "LIFECYCLE_STATE"}),
+    "CX_MEMORY_REPRESENTATIONS": frozenset({"REPRESENTATION_ID", "VERSION_ID", "REPRESENTATION_TYPE", "CONTENT_DIGEST", "TOKEN_COUNT"}),
+    "CX_MEMORY_RELATIONS": frozenset({"RELATION_ID", "SOURCE_VERSION_ID", "TARGET_VERSION_ID", "RELATION_TYPE", "RELATION_STATE"}),
+    "CX_MEMORY_SNAPSHOTS": frozenset({"SNAPSHOT_ID", "RUN_ID", "SNAPSHOT_VERSION", "SNAPSHOT_DIGEST", "PRINCIPAL_ID", "PRINCIPAL_PERMISSION_VERSION", "AGENT_INSTANCE_ID", "AGENT_FENCING_TOKEN"}),
+    "CX_MEMORY_JOBS": frozenset({"JOB_ID", "JOB_TYPE", "STATUS", "FENCING_TOKEN"}),
+    "CX_MEMORY_CANDIDATES": frozenset({"CANDIDATE_ID", "CANDIDATE_TYPE", "STATUS", "POLICY_RESULT"}),
+    "CX_MEMORY_PROJECTION_OUTBOX": frozenset({"OUTBOX_ID", "AGGREGATE_ID", "EVENT_TYPE", "STATUS"}),
+    "CX_MEMORY_VERSION_ARTIFACTS": frozenset({"LINK_ID", "VERSION_ID", "ARTIFACT_ID", "RELATION_TYPE"}),
+    "CX_MEMORY_INGESTION_FINDINGS": frozenset({"FINDING_ID", "VERSION_ID", "FINDING_TYPE", "CONTENT_DIGEST", "STATUS"}),
+    "CX_MEMORY_WORKER_RESULTS": frozenset({"RESULT_ID", "JOB_ITEM_ID", "WORKER_ID", "FENCING_TOKEN", "VALIDATION_STATE"}),
+}
+
 V431_ORGANIZATION_TABLES = (
     "CX_REPORTING_RELATIONSHIPS", "CX_ORGANIZATION_CLOSURE",
     "CX_ORGANIZATION_VERSIONS", "CX_ORGANIZATION_UNIT_HISTORY",
@@ -754,6 +785,47 @@ def validate_v431_static_contract(database: str, scripts: Sequence[Path]) -> dic
     }
 
 
+def validate_v432_static_contract(database: str, scripts: Sequence[Path]) -> dict[str, Any]:
+    """Validate the additive v4.3.2 versioned-memory declarations locally."""
+    base = validate_v431_static_contract(database, scripts)
+    selected = {path.name: path for path in scripts}
+    migration = selected.get("23_v4_3_2_memory_lifecycle.sql")
+    alignment = selected.get("24_v4_3_2_memory_digest_alignment.sql")
+    scheduler_correction = selected.get("25_v4_3_2_disable_legacy_memory_fusion.sql")
+    snapshot_fencing = selected.get("26_v4_3_2_snapshot_subject_fencing.sql")
+    completion = selected.get("27_v4_3_2_memory_governance_completion.sql")
+    source = migration.read_text(encoding="utf-8") if migration and migration.is_file() else ""
+    alignment_source = alignment.read_text(encoding="utf-8") if alignment and alignment.is_file() else ""
+    scheduler_source = scheduler_correction.read_text(encoding="utf-8") if scheduler_correction and scheduler_correction.is_file() else ""
+    fencing_source = snapshot_fencing.read_text(encoding="utf-8") if snapshot_fencing and snapshot_fencing.is_file() else ""
+    completion_source = completion.read_text(encoding="utf-8") if completion and completion.is_file() else ""
+    normalized = _normalized_marker_text(source)
+    all_memory_source = normalized + _normalized_marker_text(fencing_source) + _normalized_marker_text(completion_source)
+    missing_tables = [name for name in V432_MEMORY_TABLES if name not in all_memory_source]
+    missing_columns = {
+        table: sorted(column for column in required if column not in all_memory_source)
+        for table, required in V432_MEMORY_REQUIRED_COLUMNS.items()
+        if any(column not in all_memory_source for column in required)
+    }
+    memory = {
+        "scripts_required": list(V432_MIGRATION_SCRIPTS),
+        "scripts_missing": [name for name in V432_MIGRATION_SCRIPTS if name not in selected or not selected[name].is_file()],
+        "tables_missing": missing_tables,
+        "columns_missing": missing_columns,
+        "digest_alignment": bool(alignment_source) and (
+            "SHA256(" in alignment_source.upper()
+            if database == "pg" else "DBMS_CRYPTO.HASH" in alignment_source.upper()
+        ),
+        "legacy_fusion_disabled": "MEMORY_FUSION_JOB" in scheduler_source.upper() and (
+            "CRON.UNSCHEDULE" in scheduler_source.upper()
+            if database == "pg" else "DBMS_SCHEDULER.DROP_JOB" in scheduler_source.upper()
+        ),
+    }
+    memory["passed"] = not any((memory["scripts_missing"], memory["tables_missing"], memory["columns_missing"])) and memory["digest_alignment"] and memory["legacy_fusion_disabled"]
+    return {"database": database, "v431": base, "memory": memory,
+            "passed": bool(base.get("passed")) and bool(memory["passed"])}
+
+
 def _pg_runtime_permission_contract(cursor: Any) -> dict[str, Any]:
     """Read actual PostgreSQL grants; absence of the runtime role is a failure."""
     cursor.execute("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'ai_agent_runtime')")
@@ -1178,11 +1250,12 @@ def main() -> int:
     # could be reported as ready.
     requires_graph = target_version.startswith(("4.2.", "4.3."))
     requires_v43 = target_version.startswith("4.3.")
-    requires_v431 = target_version.startswith("4.3.1")
+    requires_v431 = target_version.startswith(("4.3.1", "4.3.2"))
+    requires_v432 = target_version.startswith("4.3.2")
     static_contracts: dict[str, dict[str, Any]] = {}
     if requires_v43:
         for database in available_databases:
-            migration_scripts = V431_MIGRATION_SCRIPTS if requires_v431 else V43_MIGRATION_SCRIPTS
+            migration_scripts = V432_MIGRATION_SCRIPTS if requires_v432 else (V431_MIGRATION_SCRIPTS if requires_v431 else V43_MIGRATION_SCRIPTS)
             scripts = [
                 (REPO_ROOT / "scripts" / "deploy" / name)
                 if (REPO_ROOT / "scripts" / "deploy" / name).is_file()
@@ -1190,8 +1263,9 @@ def main() -> int:
                 for name in migration_scripts
             ]
             static_contracts[database] = (
-                validate_v431_static_contract(database, scripts)
-                if requires_v431 else validate_v43_static_contract(database, scripts)
+                validate_v432_static_contract(database, scripts) if requires_v432 else (
+                    validate_v431_static_contract(database, scripts) if requires_v431 else validate_v43_static_contract(database, scripts)
+                )
             )
     for database in available_databases:
         path = paths[database]

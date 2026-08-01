@@ -1,4 +1,4 @@
-"""AI Agent Infra v4.3.1 - Memory API Tests"""
+"""AI Agent Infra v4.3.2 - Memory API Tests"""
 
 import sys
 import os
@@ -79,8 +79,10 @@ def _test_delete_memory(entity_id):
     ok = delete_memory(entity_id)
     assert ok
     mem = get_memory(entity_id)
-    assert mem is None
-    print("PASS: _test_delete_memory")
+    # v4.3.2 deletion is logical unavailability. The current version remains
+    # auditable but ordinary search excludes it; it is not physically erased.
+    assert mem is None or mem.get("status") == "UNAVAILABLE"
+    print("PASS: _test_delete_memory (logical unavailability)")
 
 
 def run_all():

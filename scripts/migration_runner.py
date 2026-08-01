@@ -16,11 +16,15 @@ from live_db_validator import (
     REPO_ROOT,
     V43_MIGRATION_SCRIPTS,
     V431_MIGRATION_SCRIPTS,
+    V432_MIGRATION_SCRIPTS,
     V431_ORGANIZATION_REQUIRED_COLUMNS,
     V431_ORGANIZATION_TABLES,
+    V432_MEMORY_TABLES,
+    V432_MEMORY_REQUIRED_COLUMNS,
     _load_database_config,
     validate_v43_static_contract,
     validate_v431_static_contract,
+    validate_v432_static_contract,
 )
 
 
@@ -49,8 +53,9 @@ MIGRATION_EDITION = "community"
 GRAPH_MIGRATION_VERSIONS = frozenset({"4.2.0", "4.2.1"})
 CHANNEL_MIGRATION_VERSIONS = frozenset({"4.3.0"})
 ORGANIZATION_MIGRATION_VERSIONS = frozenset({"4.3.1"})
+MEMORY_LIFECYCLE_MIGRATION_VERSIONS = frozenset({"4.3.2"})
 JOURNALED_MIGRATION_VERSIONS = (
-    GRAPH_MIGRATION_VERSIONS | CHANNEL_MIGRATION_VERSIONS | ORGANIZATION_MIGRATION_VERSIONS
+    GRAPH_MIGRATION_VERSIONS | CHANNEL_MIGRATION_VERSIONS | ORGANIZATION_MIGRATION_VERSIONS | MEMORY_LIFECYCLE_MIGRATION_VERSIONS
 )
 
 CHANNEL_REQUIRED_TABLES = frozenset({
@@ -493,6 +498,10 @@ def _preflight(conn: Any, database: str, scripts: list[Path], tier: int | None =
             deploy_dir = scripts[0].parent if scripts else _deployment_script(database, V431_MIGRATION_SCRIPTS[0]).parent
             full_scripts = [deploy_dir / name for name in V431_MIGRATION_SCRIPTS]
             v43_static_contract = validate_v431_static_contract(database, full_scripts)
+        elif MIGRATION_VERSION == "4.3.2":
+            deploy_dir = scripts[0].parent if scripts else _deployment_script(database, V432_MIGRATION_SCRIPTS[0]).parent
+            full_scripts = [deploy_dir / name for name in V432_MIGRATION_SCRIPTS]
+            v43_static_contract = validate_v432_static_contract(database, full_scripts)
     return {"database": database, "identity_present": bool(identity),
             "objects_complete_before": objects_complete,
             "scripts": [{"name": path.name, "checksum": _checksum(path)} for path in scripts],
@@ -621,7 +630,25 @@ def _identity_organization_alignment_complete(cursor: Any, database: str) -> boo
     )
 
 
+def _memory_lifecycle_complete(cursor: Any, database: str) -> bool:
+    present = _schema_tables(cursor, database)
+    return set(V432_MEMORY_TABLES) <= present and _schema_columns_complete(
+        cursor, database, V432_MEMORY_REQUIRED_COLUMNS, present,
+    )
+
+
 def _objects_complete(cursor: Any, database: str) -> bool:
+    if MIGRATION_VERSION in MEMORY_LIFECYCLE_MIGRATION_VERSIONS:
+        return (
+            _channel_objects_complete(cursor, database)
+            and _governance_lifecycle_complete(cursor, database)
+            and _security_lifecycle_complete(cursor, database)
+            and _organization_governance_complete(cursor, database)
+            and _human_display_name_complete(cursor, database)
+            and _entry_access_complete(cursor, database)
+            and _identity_organization_alignment_complete(cursor, database)
+            and _memory_lifecycle_complete(cursor, database)
+        )
     if MIGRATION_VERSION in ORGANIZATION_MIGRATION_VERSIONS:
         return (
             _channel_objects_complete(cursor, database)
@@ -894,6 +921,8 @@ def _step_objects_complete(cursor: Any, database: str, script: Path) -> bool:
         return _entry_access_complete(cursor, database)
     if key == "22_v4_3_1_identity_organization_alignment":
         return _identity_organization_alignment_complete(cursor, database)
+    if key == "23_v4_3_2_memory_lifecycle":
+        return _memory_lifecycle_complete(cursor, database)
     return True
 
 
@@ -981,6 +1010,35 @@ def _v431_script_names(database: str, config_path: Path, edition: str) -> list[s
     if not identity_org_complete:
         names.append("22_v4_3_1_identity_organization_alignment.sql")
     return names or ["22_v4_3_1_identity_organization_alignment.sql"]
+
+
+def _v432_script_names(database: str, config_path: Path, edition: str) -> list[str]:
+    """Select the full prerequisite chain and the idempotent Memory corrections."""
+    names = _v431_script_names(database, config_path, edition)
+    try:
+        config = _load_database_config(config_path)
+        probe = _connect_for_preflight(database, config)
+        try:
+            with probe.cursor() as cursor:
+                complete = _memory_lifecycle_complete(cursor, database)
+        finally:
+            probe.close()
+    except Exception:
+        complete = False
+    if complete and names == ["22_v4_3_1_identity_organization_alignment.sql"]:
+        names = []
+    if not complete:
+        names.append("23_v4_3_2_memory_lifecycle.sql")
+    # Step 24 upgrades the original step-23 legacy digest values without
+    # changing its immutable ledger checksum.  It is safe to select on every
+    # v4.3.2 invocation because the per-step ledger deduplicates it.
+    names.append("24_v4_3_2_memory_digest_alignment.sql")
+    # Step 25 removes the old direct-mutating scheduler. It must remain a
+    # separate journaled correction so an already-applied step 23 is upgraded.
+    names.append("25_v4_3_2_disable_legacy_memory_fusion.sql")
+    names.append("26_v4_3_2_snapshot_subject_fencing.sql")
+    names.append("27_v4_3_2_memory_governance_completion.sql")
+    return names
 
 
 def _prepare_migration(conn: Any, database: str, script: Path) -> MigrationResult | None:
@@ -1360,7 +1418,7 @@ def _connect_for_preflight(database: str, config: dict[str, Any]) -> Any:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--database", choices=("all", "oracle", "pg", "yashandb"), default="all")
-    parser.add_argument("--version", choices=("4.0.1", "4.1.0", "4.2.0", "4.2.1", "4.3.0", "4.3.1"), default="4.1.0")
+    parser.add_argument("--version", choices=("4.0.1", "4.1.0", "4.2.0", "4.2.1", "4.3.0", "4.3.1", "4.3.2"), default="4.1.0")
     parser.add_argument("--edition", choices=("community", "enterprise"), default="community",
                         help="v4.2 scheduler scope; Community excludes Enterprise HA objects")
     parser.add_argument("--oracle-config", type=Path)
@@ -1404,6 +1462,8 @@ def main() -> int:
             script_names = _v43_script_names(database, paths[database], MIGRATION_EDITION)
         elif MIGRATION_VERSION == "4.3.1":
             script_names = _v431_script_names(database, paths[database], MIGRATION_EDITION)
+        elif MIGRATION_VERSION == "4.3.2":
+            script_names = _v432_script_names(database, paths[database], MIGRATION_EDITION)
         else:
             script_names = [
                 "9_v4_2_0_graph_engineering.sql", "10_v4_2_0_graph_runtime.sql",
