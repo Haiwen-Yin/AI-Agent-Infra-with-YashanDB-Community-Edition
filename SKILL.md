@@ -1,6 +1,6 @@
 # SKILL.md - AI Agent Infra with YashanDB
 
-> **Version:** 4.3.3 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
+> **Version:** 4.3.4 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
 
 This is the operations guide for the AI Agent Infra with YashanDB
 release package. It covers everything an operator (human or AI Agent)
@@ -76,6 +76,15 @@ or a new credential path. Local runtime replacement is recoverable from the
 reachable database's leases, fencing, Runs, and Checkpoints. This is not a
 YashanDB HA, failover, RPO, or RTO claim.
 
+v4.3.4 adds the Enterprise Agent Compliance plane. A registered Agent must
+complete its own Gateway credential activation proof before receiving normal
+work tokens. Immutable Governed Profile versions, verified evidence, posture
+projections, findings, remediation, time-bounded exceptions, and deterministic
+restricted or quarantine controls are database-authoritative. Prompt text,
+Skill/API descriptions, and Agent self-reports are not authorization
+boundaries. The seeded Compliance Admin identity has no credential and is not
+an autonomous model runtime.
+
 The Organization workspace is a governed query and change interface. Agents
 may discover only organization facts allowed by their authenticated Principal
 and `organizations.*` scope. Reading this Skill does not grant graphical edit,
@@ -90,7 +99,7 @@ After extracting the release zip, you have:
 AI-Agent-Infra-with-YashanDB-{Community,Enterprise}-Edition/
 ├── SKILL.md                        # this file
 ├── CHANGELOG.md                    # full version history
-├── RELEASE_NOTES_v4.3.3.md   # this release's notes
+├── RELEASE_NOTES_v4.3.4.md   # this release's notes
 ├── NOTICE                          # third-party attributions
 ├── LICENSE  /  LICENSE_ENTERPRISE  # edition-specific license
 ├── requirements.txt                # pinned Python deps
@@ -153,7 +162,7 @@ AI-Agent-Infra-with-YashanDB-{Community,Enterprise}-Edition/
 | Component | Minimum | Notes |
 |-----------|---------|-------|
 | YashanDB | 23.5.4+ (崖山数据库) | verify: `SELECT version FROM v$instance;` |
-| Python | 3.8+ (3.14 recommended) | yaspy driver needs 3.8+ |
+| Python | 3.14+ | bundled yaspy module is built for CPython 3.14 |
 | yaspy driver | 1.2.1+ | bundled in `vendor/yaspy/` |
 | YashanDB client libs | 1.4.100 | bundled in `vendor/yaspy/client_lib/` |
 | Crypto package grant | required | ask DBA to grant execute on the built-in crypto package |
@@ -164,11 +173,12 @@ AI-Agent-Infra-with-YashanDB-{Community,Enterprise}-Edition/
 The compiled Web assets run without Node.js, npm, or network access. Python
 installation is offline only when every requirement in `requirements.txt` has
 an exact compatible wheel in `vendor/`; `verify_deps.py` is the release gate.
-**Two install steps are required** (in this order):
+The offline installer creates a package-local virtual environment and performs
+the native `yaspy` setup automatically:
 
 ```bash
 # 1. Extract the zip
-unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.3.3.zip
+unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.3.4.zip
 cd AI-Agent-Infra-with-YashanDB-Enterprise-Edition
 
 # Select any accessible Python 3.14+ runtime; no vendor-specific path is required.
@@ -176,19 +186,17 @@ source scripts/python_runtime.sh
 export PYTHON_BIN="$(cx_resolve_python)"
 cx_prepare_python_environment "$PYTHON_BIN"
 
-# 2. Install yaspy driver + YashanDB client libraries (REQUIRED FIRST)
-bash scripts/install_yaspy.sh
-# -> copies yaspy.cpython-*.so to Python site-packages
-# -> copies client_lib/*.so.1.4.100 to ~/.yashandb/client/lib/
-# -> recreates the .so and .so.MAJOR symlinks (cannot survive zip archive)
-# -> exports LD_LIBRARY_PATH in ~/.bashrc
-
-# 3. Install remaining Python dependencies from vendor/
+# 2. Create .venv, install yaspy and all remaining dependencies from vendor/
 bash scripts/install_offline.sh
 
-# 4. Verify all dependencies are present
-"$PYTHON_BIN" scripts/verify_deps.py
+# 3. Verify all dependencies are present
+./.venv/bin/python scripts/verify_deps.py
 ```
+
+The bundled `yaspy` extension is copied into `.venv`; client libraries are
+placed under `.runtime/yashandb-client/lib` and applied only by the service
+process. The installer never writes `~/.bashrc`. To use an approved shared
+client directory, set `CX_YASHAN_LIB_DIR` before installation and startup.
 
 The installer fails closed when a required wheel is missing or incompatible;
 obtain the missing release dependencies from the approved internal mirror
@@ -199,7 +207,7 @@ glibc 2.34+ and the RHEL 8/glibc 2.28 source-built wheel. The installer and
 `verify_deps.py` select the compatible one automatically. Customers on newer
 systems do not need to rebuild cryptography; the reproducible source-build
 procedure is documented in `docs/cryptography-build.md`.
-The current v4.3.3 archive includes the verified glibc 2.28 wheel; do not
+The current v4.3.4 archive includes the verified glibc 2.28 wheel; do not
 rename the `manylinux_2_34` wheel or substitute an older cryptography release.
 
 `deploy_yashandb.py` automatically invokes `install_yaspy.sh` before

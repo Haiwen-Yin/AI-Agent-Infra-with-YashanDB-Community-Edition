@@ -31,8 +31,9 @@ else
     exit 1
 fi
 
-# Install YashanDB client libraries
-YASHAN_LIB_DIR="$HOME/.yashandb/client/lib"
+# Install YashanDB client libraries beside the package by default. Operators
+# can override CX_YASHAN_LIB_DIR for an approved shared client location.
+YASHAN_LIB_DIR="${CX_YASHAN_LIB_DIR:-$PROJECT_DIR/.runtime/yashandb-client/lib}"
 mkdir -p "$YASHAN_LIB_DIR"
 
 if [ -d "$PROJECT_DIR/vendor/yaspy/client_lib" ]; then
@@ -51,19 +52,19 @@ if [ -d "$PROJECT_DIR/vendor/yaspy/client_lib" ]; then
     
     echo "[install] YashanDB client libraries installed to $YASHAN_LIB_DIR"
     
-    # Add to LD_LIBRARY_PATH
-    EXPORT_LINE="export LD_LIBRARY_PATH=\"$YASHAN_LIB_DIR:\$LD_LIBRARY_PATH\""
-    if ! grep -q "YASHANDB" ~/.bashrc 2>/dev/null; then
-        echo "$EXPORT_LINE  # YashanDB client libraries" >> ~/.bashrc
-        echo "[install] Added LD_LIBRARY_PATH to ~/.bashrc"
-    fi
+    # Keep loader configuration process-local. The Web start script applies
+    # the same path on every launch, so installation never modifies ~/.bashrc.
     export LD_LIBRARY_PATH="$YASHAN_LIB_DIR:$LD_LIBRARY_PATH"
 else
     echo "[install] WARNING: YashanDB client libraries not found in vendor/yaspy/client_lib/"
 fi
 
 # Verify installation
-"$PYTHON_BIN" -c "import yaspy; print('[install] yaspy version:', yaspy.version)" 2>/dev/null || \
-echo "[install] WARNING: yaspy import failed - check LD_LIBRARY_PATH"
+if "$PYTHON_BIN" -c "import yaspy; print('[install] yaspy driver import verified')"; then
+    :
+else
+    echo "[install] ERROR: yaspy import failed - check the package-local client library path" >&2
+    exit 1
+fi
 
 echo "[install] Done."

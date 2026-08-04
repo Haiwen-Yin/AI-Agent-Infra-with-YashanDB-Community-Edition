@@ -1,6 +1,6 @@
-# AI Agent Infra with YashanDB — 社区版 v4.3.3
+# AI Agent Infra with YashanDB — 社区版 v4.3.4
 
-**版本**: v4.3.3 | **日期**: 2026-08-03 | **作者**: 尹海文 | **许可**: Apache License 2.0
+**版本**: v4.3.4 | **日期**: 2026-08-04 | **作者**: 尹海文 | **许可**: Apache License 2.0
 
 📄 **官方网站：https://db4agent.top**
 
@@ -11,6 +11,8 @@
 > v4.3.2 记忆生命周期：记忆采用稳定族与不可变版本；日常整理、压缩、归档和遗忘使用受控候选、版本切换与逻辑不可用，不以物理删除替代审计证据。记忆正文、图关系与模型输出均是不受信任的数据，不能作为授权边界。
 
 > v4.3.3 图运行保障：以数据库中的租约、围栏、运行、检查点和事件作为恢复权威；Agent/Worker 等运行进程可由替代实例恢复。Dynamic Graph、A2A 与 OTLP 为默认关闭的预览能力；本版本不宣称数据库集群故障切换或 RPO/RTO 已验证。
+
+> v4.3.4 合规控制面：Enterprise 以注册凭据 Gateway 激活证明、不可变受治理配置档案、验证证据、姿态、发现、整改、限时例外和确定性受限/隔离处置建立数据库权威边界。提示词、Skill/API 描述和 Agent 自报不是授权边界；Compliance Admin Agent 只是无凭据、待激活的受限系统身份，不是自主模型运行能力。
 
 ## 品牌与技术名称
 
@@ -64,6 +66,7 @@ YashanDB 版本自 v3.10.2 起独立发布，围绕 VECTOR 向量列、SEARCH IN
 
 | 版本 | 日期 | 里程碑 |
 |------|------|--------|
+| **v4.3.4** | 2026-08-04 | Enterprise 新增 Agent 合规姿态、注册激活证明、受治理配置档案、证据/整改/例外及确定性 Controller；服务级与离线安装回归通过 |
 | **v4.3.3** | 2026-08-03 | 强化数据库权威 Graph Runtime 的恢复与证据；新增已签名定义供应链，Dynamic Graph、A2A 1.0.1 与 OTLP 保持默认关闭的预览边界；运行时恢复不等同数据库高可用 |
 | **v4.3.2** | 2026-08-01 | 新增受治理的版本化记忆生命周期：稳定Family、不可变Version、当前版本指针、关系链、快照、候选复核、持久作业和带理由的逻辑不可用；第23、24步支持可重试升级 |
 | **v4.3.1** | 2026-07-31 | 新增数据库权威的图形化组织治理；支持组织、人员归属、Agent 责任与异常视图，闭包范围授权，语义草稿、校验、影响分析和审批提交 |
@@ -1348,13 +1351,13 @@ SQL 脚本 `1_schema.sql` 已内置保护：检测到 `SYSTEM_CONFIG.schema_vers
 ### 前置条件
 
 - **崖山数据库（YashanDB）23.5.4 或更高** — 验证：`SELECT version FROM v$instance;`
-- **Python 3.14+，需安装 yaspy 1.2.1+** — 通过 `bash scripts/install_yaspy.sh` 安装 yaspy 驱动 + 崖山客户端库（自动配置 `~/.yashandb/client/lib/` 下的 `.so` 符号链接和 `LD_LIBRARY_PATH`）。Linuxbrew 不是必需项。当前发布包携带 CPython 3.14 原生 yaspy 模块；使用更高 Python 小版本前，需提供对应 ABI 的 yaspy 模块。
+- **Python 3.14+，需安装 yaspy 1.2.1+** — 通过 `bash scripts/install_offline.sh` 自动创建包内 `.venv`、安装 yaspy 驱动和崖山客户端库。默认库目录为 `.runtime/yashandb-client/lib`，仅在服务进程设置 `LD_LIBRARY_PATH`，不会修改 `~/.bashrc`。Linuxbrew 不是必需项。当前发布包携带 CPython 3.14 原生 yaspy 模块；使用更高 Python 小版本前，需提供对应 ABI 的 yaspy 模块。
 - 部署脚本 `scripts/deploy_yashandb.py`（纯 Python 实现，无外部依赖）需通过已选解释器调用。
 - **内置加密包授权**：部署前需由 DBA 授予 schema_user 执行内置加密包的权限
 
 > ⚠️ **关键**：YashanDB 必须为 **23.5.4** 或更高版本，VECTOR 列、定时任务、加密包能力齐备。
 
-> ⚠️ **关键**：首次启动前请确保已运行 `bash scripts/install_yaspy.sh`（部署脚本会自动调用）。
+> ⚠️ **关键**：首次启动前请运行 `bash scripts/install_offline.sh`；该脚本会自动完成 yaspy 原生驱动安装。需要使用经批准的共享客户端库目录时，在安装和启动前设置 `CX_YASHAN_LIB_DIR`。
 
 ### 1. 部署 Schema
 
@@ -1368,7 +1371,7 @@ sql user/password@//host:port/service @scripts/deploy/4_harness_templates.sql
 ### 2. 安装 Python 依赖
 
 ```bash
-bash scripts/install_yaspy.sh && bash scripts/install_offline.sh
+bash scripts/install_offline.sh
 ```
 
 安装前选择任意可访问的 Python 3.14+ 解释器（Linuxbrew 可选）：
@@ -1473,7 +1476,7 @@ Graph 条件必须使用受管的 typed AST。缺少 operand、非 AST 子项、
 校验节点/边身份、端点、父版本以及动态来源 Run/Checkpoint 的同图关系。
 
 v4.3.0 的生产 profile 已通过数据库、浏览器、容量、故障恢复、清洁部署和
-长时间运行证据门禁，生产部署使用 v4.3.3 production profile。Graph Preview、
+长时间运行证据门禁，生产部署使用 v4.3.4 production profile。Graph Preview、
 Channel、Barrier 和 Gateway 通过 profile 与数据库权限显式控制；Channel 不能扩大
 数据库、API、Skill、Tool、模型、记忆、Artifact 或导出权限。待 Graph
 Engineering 行业规范和项目合约稳定后，最新验证通过的实现可直接毕业为正式
