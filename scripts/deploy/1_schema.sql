@@ -1,5 +1,5 @@
 PROMPT ============================================================
-PROMPT AI Agent Infra v4.3.5 - YashanDB Schema Deployment
+PROMPT AI Agent Infra v4.3.6 - YashanDB Schema Deployment
 PROMPT ============================================================
 
 PROMPT Creating helper procedures...
@@ -1104,5 +1104,5 @@ DROP PROCEDURE IF EXISTS safe_ddl;
 DROP PROCEDURE IF EXISTS safe_idx;
 
 PROMPT ============================================================
-PROMPT AI Agent Infra v4.3.5 - YashanDB Schema Deployment Complete
+PROMPT AI Agent Infra v4.3.6 - YashanDB Schema Deployment Complete
 PROMPT ============================================================
