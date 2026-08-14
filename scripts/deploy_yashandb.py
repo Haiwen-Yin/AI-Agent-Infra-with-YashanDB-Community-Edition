@@ -1,5 +1,5 @@
 #!/usr/bin/env python3.14
-"""AI Agent Infra v4.4.3 - YashanDB Edition - Schema Deployment Tool
+"""AI Agent Infra v4.4.4 - YashanDB Edition - Schema Deployment Tool
 
 Uses yaspy driver to deploy SQL scripts to YashanDB 23.5.4+.
 Handles PROMPT removal, / block splitting, ; statement splitting.
