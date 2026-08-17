@@ -1,6 +1,6 @@
 # SKILL.md - AI Agent Infra with YashanDB
 
-> **Version:** 4.4.6 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
+> **Version:** 4.4.7 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
 
 This is the operations guide for the AI Agent Infra with YashanDB
 release package. It covers everything an operator (human or AI Agent)
@@ -148,7 +148,10 @@ paused and requires an approved `GRAPH_FORK_REPLAY` decision bound to the child
 Run, or bounded compensation evidence, before resume. Agent Card and protocol
 metadata remain descriptive and cannot grant Skills or Tools.
 
-v4.4.6 adds governed Human registration and Portal admission. Portal and
+v4.4.6 adds governed Human registration and Portal admission. v4.4.7 is a
+small maintenance release that adds saved LLM model-identity probing,
+health-state writeback, reference-safe logical retirement, and a batched
+real-time capability manifest calculation. Portal and
 Dashboard link to one independent registration surface. Display name, email,
 and mobile requirements come from a versioned database policy; an optional
 purpose-separated Human Registration Token is one-use and is not an Agent
@@ -168,7 +171,7 @@ After extracting the release zip, you have:
 AI-Agent-Infra-with-YashanDB-{Community,Enterprise}-Edition/
 ├── SKILL.md                        # this file
 ├── CHANGELOG.md                    # full version history
-├── RELEASE_NOTES_v4.4.6.md   # this release's notes
+├── RELEASE_NOTES_v4.4.7.md   # this release's notes
 ├── NOTICE                          # third-party attributions
 ├── LICENSE  /  LICENSE_ENTERPRISE  # edition-specific license
 ├── requirements.txt                # pinned Python deps
@@ -251,7 +254,7 @@ the native `yaspy` setup automatically:
 
 ```bash
 # 1. Extract the zip
-unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.4.6.zip
+unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.4.7.zip
 cd AI-Agent-Infra-with-YashanDB-Enterprise-Edition
 
 # Select any accessible Python 3.14+ runtime; no vendor-specific path is required.
@@ -355,9 +358,9 @@ Use the checksum-journaled migration runner for every additive release step;
 do not select or reorder individual migration files manually:
 
 ```bash
-"$PYTHON_BIN" scripts/migration_runner.py --preflight --version 4.4.6 \
+"$PYTHON_BIN" scripts/migration_runner.py --preflight --version 4.4.7 \
   --database yashandb --edition <community|enterprise> --yashandb-config config.json
-"$PYTHON_BIN" scripts/migration_runner.py --version 4.4.6 \
+"$PYTHON_BIN" scripts/migration_runner.py --version 4.4.7 \
   --database yashandb --edition <community|enterprise> --yashandb-config config.json \
   --backup-evidence release_evidence/backup.json
 ```
@@ -683,7 +686,7 @@ reviews, gates, or release decisions. Conflict, missing evidence, or high-risk
 Graph changes pause the affected run for governed review; do not bypass a gate
 by editing database tables or calling adapter SQL directly.
 
-## v4.4.4-v4.4.6 Current Operations
+## v4.4.4-v4.4.7 Current Operations
 
 v4.4.4 adds governed Admin Agent and Agent Pool node/storage configuration,
 external database endpoints, Portal LLM allowlists, platform templates, and
@@ -697,7 +700,9 @@ v4.4.5 admits Graph Runs only when Definition, compiled Plan, runtime profile,
 state schema, budget schema, and capability contracts match. Non-repeatable
 forks start paused until governed approval or compensation evidence exists.
 
-v4.4.6 adds one Human registration page, versioned field and Token policies,
+v4.4.6 adds one Human registration page, versioned field and Token policies;
+v4.4.7 adds saved LLM probing and lifecycle safety without changing the
+database authorization boundary.
 provider-neutral external identity transactions, Portal connection limits,
 exclusive page-operation leases, and explicit Graph capability posture. Apply
 steps `46` and `47` only through the migration runner. An Agent consuming this
