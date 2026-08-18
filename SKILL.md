@@ -1,6 +1,6 @@
 # SKILL.md - AI Agent Infra with YashanDB
 
-> **Version:** 4.4.7 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
+> **Version:** 4.4.8 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
 
 This is the operations guide for the AI Agent Infra with YashanDB
 release package. It covers everything an operator (human or AI Agent)
@@ -181,7 +181,7 @@ After extracting the release zip, you have:
 AI-Agent-Infra-with-YashanDB-{Community,Enterprise}-Edition/
 ├── SKILL.md                        # this file
 ├── CHANGELOG.md                    # full version history
-├── RELEASE_NOTES_v4.4.7.md   # this release's notes
+├── RELEASE_NOTES_v4.4.8.md   # this release's notes
 ├── NOTICE                          # third-party attributions
 ├── LICENSE  /  LICENSE_ENTERPRISE  # edition-specific license
 ├── requirements.txt                # pinned Python deps
@@ -264,7 +264,7 @@ the native `yaspy` setup automatically:
 
 ```bash
 # 1. Extract the zip
-unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.4.7.zip
+unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.4.8.zip
 cd AI-Agent-Infra-with-YashanDB-Enterprise-Edition
 
 # Select any accessible Python 3.14+ runtime; no vendor-specific path is required.
@@ -368,9 +368,9 @@ Use the checksum-journaled migration runner for every additive release step;
 do not select or reorder individual migration files manually:
 
 ```bash
-"$PYTHON_BIN" scripts/migration_runner.py --preflight --version 4.4.7 \
+"$PYTHON_BIN" scripts/migration_runner.py --preflight --version 4.4.8 \
   --database yashandb --edition <community|enterprise> --yashandb-config config.json
-"$PYTHON_BIN" scripts/migration_runner.py --version 4.4.7 \
+"$PYTHON_BIN" scripts/migration_runner.py --version 4.4.8 \
   --database yashandb --edition <community|enterprise> --yashandb-config config.json \
   --backup-evidence release_evidence/backup.json
 ```
@@ -719,3 +719,11 @@ lease conflicts, missing capability evidence, or authorization failures.
 
 v4.4.7 adds saved LLM probing and lifecycle safety without changing the
 database authorization boundary.
+
+v4.4.8 hardens the platform command and maintenance control plane. Command
+discovery and help come from the database registry, not from an Agent Card or
+prompt. Safe autonomy is disabled by default; high-impact work always needs a
+final human approval. The Enterprise Compliance Agent remains proposal-only.
+YashanDB does not have Oracle Data Grants, so platform private knowledge and
+control tables fail closed by revoking broad business-session privileges.
+Apply step `48` only through the migration runner with backup evidence.
