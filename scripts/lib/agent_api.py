@@ -124,6 +124,19 @@ def _ensure_end_user(agent_id: str) -> None:
         logger.error("Independent database user provisioning failed for %s: %s", agent_id, e)
 
 
+def ensure_external_agent_identity(agent_id: str) -> None:
+    """Ensure a redeemed external Agent has a verifiable independent user."""
+    execute(
+        "MERGE INTO AGENT_REGISTRY t USING (SELECT :agent_id AGENT_ID FROM DUAL) s "
+        "ON (t.AGENT_ID=s.AGENT_ID) WHEN NOT MATCHED THEN INSERT "
+        "(AGENT_ID,AGENT_NAME,AGENT_TYPE,STATUS) VALUES (:agent_id,:agent_name,'external-skill','ACTIVE')",
+        {"agent_id": agent_id, "agent_name": agent_id},
+    )
+    _ensure_end_user(agent_id)
+    if not _get_end_user_password_direct(agent_id):
+        raise RuntimeError(f"No YashanDB login credentials for agent {agent_id}")
+
+
 def get_agent(agent_id: str) -> Optional[Dict[str, Any]]:
     """Retrieve agent details by ID."""
     sql = """

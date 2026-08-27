@@ -1,6 +1,6 @@
 # AI Agent Infra with YashanDB — 社区版 v4.4.10
 
-**版本**: v4.4.10 | **日期**: 2026-08-24 | **作者**: 尹海文 | **许可**: Apache License 2.0
+**版本**: v4.4.10 | **日期**: 2026-08-27 | **作者**: 尹海文 | **许可**: Apache License 2.0
 
 📄 **官方网站：https://db4agent.cn**
 
@@ -901,6 +901,14 @@ CALL INTERNAL_CRYPTO.rotate_key();
 > - Admin Dashboard 使用独立认证的 Schema Owner 管理路径。
 >
 
+初始化前，YashanDB 管理员需在专用应用 PDB 中执行
+`scripts/deploy/0_yashandb_database_prerequisites.sql`，并将
+`SCHEMA_OWNER` 设置为实际部署属主。脚本只授予 `CREATE USER` 与
+`ALTER USER`，分别用于首次创建 Agent 独立用户和后续密码轮换；不会授予
+DBA 或 SYSDBA。脚本还会创建仅含会话能力的 `DEEP_SEC_SESSION_ROLE`，并将
+其 `ADMIN OPTION` 授予 Schema Owner；Bootstrap 随后执行包内业务对象授权
+策略。缺少任一权限、角色或管理授权时，初始化 preflight 会阻断。
+
 #### 最小权限用户
 
 `4_grants.sql` 创建内部受限主体 `AGENT_API` 作为授权基线；Business Agent 必须使用动态创建的独立数据库用户，而不能共享该主体的登录凭证：
@@ -1415,6 +1423,7 @@ v4.0.0 起发布包不再携带真实 `config.json`，只携带 `config.example.
 ./start_web_server.sh start
 # → 向导自动检测 <PLACEHOLDER>，依次询问：
 #     database: user / password / dsn (host:port/service)
+#     server:   监听地址 / Web 端口
 #     llm:      api_url / model / api_key
 #     embedding: api_url / model / dimension
 # → 写入 config.json，随后服务器自动加密敏感字段
@@ -1511,4 +1520,6 @@ Dynamic Graph Migration、Framework Adapter Execution、A2A 与 OTLP 为
 
 模型网关保持可选，直连与平台网关可以并行。平台网关提供硬配额和软预算、原子预留与结算、AES-GCM 有界响应重放、统一错误关联标识；模型用量账、供应商账单、追加式纠正/对账和 Enterprise 内部分摊保持为相互可追溯但不混淆的事实层。
 
-可信外部适配器以 Ed25519 签名、版本化密钥、吊销、顺序号和 nonce 上报证据。平台不声称自动发现未经过网关且没有签名证据的模型调用。管理大屏支持 allowlist 定义版本、发布和回滚，但 Viewer 仍为登录后只读。v4.4.10 使用 `baseline_v4_4_10.json` 进行全新部署并执行到迁移 59；Bootstrap 在任何写入前验证备份证据，通过交互输入或 `0600` 密码文件建立首次管理员 Argon2id 凭据，然后创建平台原生管理 Agent 并退休临时部署身份。历史脚本继续保持 journal 和 checksum 完整，但不作为旧包原地升级承诺。v4.4.8 已撤回。
+可信外部适配器以 Ed25519 签名、版本化密钥、吊销、顺序号和 nonce 上报证据。平台不声称自动发现未经过网关且没有签名证据的模型调用。管理大屏支持 allowlist 定义版本、发布和回滚，但 Viewer 仍为登录后只读。v4.4.10 使用 `baseline_v4_4_10.json` 进行全新部署并执行到迁移 59；Bootstrap 在任何写入前严格验证空目标，记录数据库侧恢复边界而不要求客户端备份文件，通过交互输入或 `0600` 密码文件建立首次管理员 Argon2id 凭据，然后创建平台原生管理 Agent 并退休临时部署身份。历史脚本继续保持 journal 和 checksum 完整，但不作为旧包原地升级承诺。v4.4.8 已撤回。
+
+升级时，交互流程要求输入 `UPGRADE` 确认数据库侧备份恢复责任，自动化使用 `--confirm-database-backup`。确认写入 journal，但运行客户端不要求备份文件，也不伪称能够验证 YashanDB 原生备份。

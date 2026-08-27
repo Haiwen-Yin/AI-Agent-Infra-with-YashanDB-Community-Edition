@@ -299,6 +299,16 @@ rename the `manylinux_2_34` wheel or substitute an older cryptography release.
 `deploy_yashandb.py` automatically invokes `install_yaspy.sh` before
 deploying, so you can skip step 2 if you go straight to schema deployment.
 
+Before running the initializer, a YashanDB administrator must review
+`scripts/deploy/0_yashandb_database_prerequisites.sql`, set `SCHEMA_OWNER`,
+and execute it in the dedicated application PDB. The script grants only
+`CREATE USER` and `ALTER USER`, which are required to create each Business
+Agent's independent login and rotate that login's password. It also creates
+the bounded `DEEP_SEC_SESSION_ROLE` with `CREATE SESSION` and grants its
+`ADMIN OPTION` to the Owner; Bootstrap applies the packaged business-object
+policy afterward. It does not grant DBA or SYSDBA, and preflight fails closed
+when any prerequisite is missing.
+
 ## 5. Configuration
 
 The zip ships **`config.example.json`** with `<PLACEHOLDER>` values only -
@@ -310,6 +320,7 @@ real credentials are NEVER bundled. Two ways to produce a runnable
 ./start_web_server.sh start
 # -> wizard auto-detects <PLACEHOLDER> tokens and prompts for:
 #     database: user / password / dsn (host:port/service)
+#     server:   listen address / Web port
 #     llm:      api_url / model / api_key
 #     embedding: api_url / model / dimension
 # -> writes config.json
@@ -372,7 +383,7 @@ do not select or reorder individual migration files manually:
   --database yashandb --edition <community|enterprise> --yashandb-config config.json
 "$PYTHON_BIN" scripts/migration_runner.py --version 4.4.10 \
   --database yashandb --edition <community|enterprise> --yashandb-config config.json \
-  --backup-evidence release_evidence/backup.json
+  --confirm-database-backup
 ```
 
 The runner applies the edition-aware chain through steps `46` and `47`,
@@ -658,17 +669,22 @@ For a prepared target, run the package-local Bootstrap Deployment Agent:
 
 ```bash
 bash scripts/install_platform.sh initialize --database yashandb \
-  --edition <community|enterprise> --version 4.4.10 --config config.json \
-  --backup-evidence release_evidence/backup.json
+  --edition <community|enterprise> --version 4.4.10 --config config.json
 ```
 
 It verifies a checksum-bound package manifest, executes only packaged SQL, and
-executes through the manifest's terminal migration. Interactive initialization
+executes through the manifest's terminal migration. It requires a verified
+empty target, records a database-managed recovery boundary, and does not
+require client-side backup evidence. Interactive initialization
 prompts twice for the first `admin` password; automation must use a current-user-
 owned `0600` regular file with `--admin-password-file`. Only the Argon2id hash
 is stored. The command records sanitized deployment evidence before retiring
 its temporary identity.
 It does not create PDBs, tablespaces, or privileged YashanDB infrastructure.
+An interactive upgrade explains the database-native recovery boundary and
+requires `UPGRADE`; automation passes `--confirm-database-backup`. The accepted
+responsibility is journaled, but this client never claims to verify a YashanDB
+backup or requires a client-side evidence file.
 Embedding Profiles, immutable Contracts, Spaces, and bindings govern every
 vector write and retrieval. Choose exactly one mode: `PLATFORM_MANAGED`,
 `ENTERPRISE_DIRECT`, `ENTERPRISE_PROXY`, `PRECOMPUTED_IMPORT`, or `NONE`.
@@ -731,4 +747,5 @@ prompt. Safe autonomy is disabled by default; high-impact work always needs a
 final human approval. The Enterprise Compliance Agent remains proposal-only.
 YashanDB does not have Oracle Data Grants, so platform private knowledge and
 control tables fail closed by revoking broad business-session privileges.
-Apply step `48` only through the migration runner with backup evidence.
+Apply step `48` only through the migration runner after explicitly confirming
+database-side backup responsibility.
