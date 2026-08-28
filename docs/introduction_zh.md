@@ -903,9 +903,10 @@ CALL INTERNAL_CRYPTO.rotate_key();
 
 初始化前，YashanDB 管理员需在专用应用 PDB 中执行
 `scripts/deploy/0_yashandb_database_prerequisites.sql`，并将
-`SCHEMA_OWNER` 设置为实际部署属主。脚本只授予 `CREATE USER` 与
-`ALTER USER`，分别用于首次创建 Agent 独立用户和后续密码轮换；不会授予
-DBA 或 SYSDBA。脚本还会创建仅含会话能力的 `DEEP_SEC_SESSION_ROLE`，并将
+`SCHEMA_OWNER` 设置为实际部署属主。脚本授予基线所需的 `CREATE SESSION`、
+表、视图、序列、存储过程、触发器、类型与 `CREATE JOB`，以及用于 Agent
+独立用户创建和密码轮换的 `CREATE USER`、`ALTER USER`；不会授予 DBA 或
+SYSDBA。脚本还会创建仅含会话能力的 `DEEP_SEC_SESSION_ROLE`，并将
 其 `ADMIN OPTION` 授予 Schema Owner；Bootstrap 随后执行包内业务对象授权
 策略。缺少任一权限、角色或管理授权时，初始化 preflight 会阻断。
 

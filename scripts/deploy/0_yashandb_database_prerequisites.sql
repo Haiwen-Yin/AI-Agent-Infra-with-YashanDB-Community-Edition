@@ -6,6 +6,13 @@ DEFINE SCHEMA_OWNER = CX_AGENT_OWNER
 
 SELECT SYS_CONTEXT('USERENV', 'CON_NAME') AS TARGET_PDB FROM DUAL;
 
+-- The release baseline creates schema objects and DBMS_SCHEDULER jobs before
+-- handing control to native management Agents. Grant these directly so the
+-- live preflight can prove the bounded Owner contract without a DBA role.
+GRANT CREATE SESSION, CREATE TABLE, CREATE VIEW, CREATE SEQUENCE,
+      CREATE PROCEDURE, CREATE TRIGGER, CREATE TYPE, CREATE JOB
+  TO &&SCHEMA_OWNER;
+
 -- Business Agents receive independent database users. The bounded application
 -- Owner creates those users and rotates only their credentials; it does not
 -- receive DBA, SYSDBA, or unrestricted object privileges.
@@ -29,7 +36,11 @@ GRANT DEEP_SEC_SESSION_ROLE TO &&SCHEMA_OWNER WITH ADMIN OPTION;
 SELECT PRIVILEGE
   FROM DBA_SYS_PRIVS
  WHERE GRANTEE = UPPER('&&SCHEMA_OWNER')
-   AND PRIVILEGE IN ('CREATE USER', 'ALTER USER')
+   AND PRIVILEGE IN (
+       'CREATE SESSION', 'CREATE TABLE', 'CREATE VIEW', 'CREATE SEQUENCE',
+       'CREATE PROCEDURE', 'CREATE TRIGGER', 'CREATE TYPE', 'CREATE JOB',
+       'CREATE USER', 'ALTER USER'
+   )
  ORDER BY PRIVILEGE;
 
 SELECT GRANTED_ROLE, ADMIN_OPTION
