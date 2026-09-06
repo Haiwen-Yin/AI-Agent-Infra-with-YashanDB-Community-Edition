@@ -2,6 +2,38 @@
 # Install yaspy driver and YashanDB client libraries
 # Usage: bash scripts/install_yaspy.sh
 
+cx_atomic_copy() {
+    local source="$1" target="$2" staged
+    staged="$(mktemp "$(dirname "$target")/.cx-native-XXXXXX")" || return 1
+    if cp --preserve=mode "$source" "$staged" && mv -f "$staged" "$target"; then
+        return 0
+    fi
+    rm -f "$staged"
+    return 1
+}
+
+cx_link_client_library() {
+    local lib="$1" base soname
+    base="${lib%%.so.*}"
+    soname="$(LC_ALL=C readelf -d "$lib" | awk '/\(SONAME\)/ { sub(/^.*\[/, ""); sub(/\].*$/, ""); print; exit }')"
+    if [[ ! "$soname" =~ ^lib[A-Za-z0-9_]+\.so(\.[0-9]+)*$ ]]; then
+        echo "[install] ERROR: Missing or invalid ELF SONAME for $lib" >&2
+        return 1
+    fi
+    ln -sfn "$lib" "$soname"
+    ln -sfn "$lib" "${base}.so"
+}
+
+# Allow the linker helper to be tested without installing a Python module.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+    return 0
+fi
+set -euo pipefail
+if ! command -v readelf >/dev/null 2>&1; then
+    echo "[install] ERROR: readelf is required; install binutils first." >&2
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 if [ -f "$SCRIPT_DIR/python_runtime.sh" ]; then
@@ -24,7 +56,7 @@ echo "[install] Installing yaspy driver..."
 
 # Install yaspy .so file
 if [ -f "$PROJECT_DIR/vendor/yaspy/yaspy.cpython-314-x86_64-linux-gnu.so" ]; then
-    cp "$PROJECT_DIR/vendor/yaspy/yaspy.cpython-314-x86_64-linux-gnu.so" "$PYTHON_SITE/"
+    cx_atomic_copy "$PROJECT_DIR/vendor/yaspy/yaspy.cpython-314-x86_64-linux-gnu.so" "$PYTHON_SITE/yaspy.cpython-314-x86_64-linux-gnu.so"
     echo "[install] yaspy driver installed to $PYTHON_SITE"
 else
     echo "[install] ERROR: yaspy .so file not found in vendor/yaspy/"
@@ -37,30 +69,29 @@ YASHAN_LIB_DIR="${CX_YASHAN_LIB_DIR:-$PROJECT_DIR/.runtime/yashandb-client/lib}"
 mkdir -p "$YASHAN_LIB_DIR"
 
 if [ -d "$PROJECT_DIR/vendor/yaspy/client_lib" ]; then
-    cp "$PROJECT_DIR/vendor/yaspy/client_lib/"* "$YASHAN_LIB_DIR/" 2>/dev/null
+    for source_lib in "$PROJECT_DIR/vendor/yaspy/client_lib/"*; do
+        cx_atomic_copy "$source_lib" "$YASHAN_LIB_DIR/$(basename "$source_lib")"
+    done
     
     # Create symlinks for shared library versioning
     cd "$YASHAN_LIB_DIR"
+    shopt -s nullglob
     for lib in *.so.*.*.*; do
-        base=$(echo "$lib" | sed 's/\.so\..*//')
-        ver_major=$(echo "$lib" | sed 's/.*\.so\.//' | cut -d. -f1)
-        # Create .so.${ver_major} symlink
-        ln -sf "$lib" "${base}.so.${ver_major}"
-        # Create .so symlink
-        ln -sf "$lib" "${base}.so"
+        cx_link_client_library "$lib"
     done
     
     echo "[install] YashanDB client libraries installed to $YASHAN_LIB_DIR"
     
     # Keep loader configuration process-local. The Web start script applies
     # the same path on every launch, so installation never modifies ~/.bashrc.
-    export LD_LIBRARY_PATH="$YASHAN_LIB_DIR:$LD_LIBRARY_PATH"
+    export LD_LIBRARY_PATH="$YASHAN_LIB_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 else
-    echo "[install] WARNING: YashanDB client libraries not found in vendor/yaspy/client_lib/"
+    echo "[install] ERROR: YashanDB client libraries not found in vendor/yaspy/client_lib/" >&2
+    exit 1
 fi
 
 # Verify installation
-if "$PYTHON_BIN" -c "import yaspy; print('[install] yaspy driver import verified')"; then
+if "$PYTHON_BIN" -c "import ctypes, yaspy; ctypes.CDLL('libyascli.so'); print('[install] yaspy driver and native client load verified')"; then
     :
 else
     echo "[install] ERROR: yaspy import failed - check the package-local client library path" >&2

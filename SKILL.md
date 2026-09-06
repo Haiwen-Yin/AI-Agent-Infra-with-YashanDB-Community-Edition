@@ -1,6 +1,6 @@
 # SKILL.md - AI Agent Infra with YashanDB
 
-> **Version:** 4.4.10 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
+> **Version:** 4.4.12 | **Driver:** yaspy 1.2.1 | **DB:** YashanDB 23.5.4+ (崖山数据库)
 
 This is the operations guide for the AI Agent Infra with YashanDB
 release package. It covers everything an operator (human or AI Agent)
@@ -21,6 +21,18 @@ platform. Registration and authentication are still required before an Agent
 enters the managed inventory, identity, permission, and audit scope.
 
 ## 1. Overview
+
+### Native Entity Access Boundary
+
+The v4.4.12 development baseline requires migration 70. Independent Agent SQL
+must read `CX_AGENT_ENTITY_READ`, `CX_AGENT_KNOWLEDGE_READ`,
+`CX_AGENT_KNOWLEDGE_META_READ`, `CX_AGENT_EMBEDDING_READ` and
+`CX_AGENT_EDGE_READ`, not the corresponding base tables. Minimal private native
+writes use `CX_AGENT_ENTITY_API`; governed sharing and memory lifecycle use the
+authenticated platform API. Legacy definer-rights packages are not an Agent
+entry point. Never fall back to the Schema Owner when a query is denied.
+See [Native Entity Access](docs/native-data-security.md) for transaction and
+compatibility details.
 
 AI Agent Infra with DB is the technical foundation of the **Chuanxu AI Agent
 Management Platform**, built on **YashanDB 23.5.4+** (崖山数据库). It
@@ -181,7 +193,7 @@ After extracting the release zip, you have:
 AI-Agent-Infra-with-YashanDB-{Community,Enterprise}-Edition/
 ├── SKILL.md                        # this file
 ├── CHANGELOG.md                    # full version history
-├── RELEASE_NOTES_v4.4.10.md   # this release's notes
+├── RELEASE_NOTES_v4.4.12.md   # this release's notes
 ├── NOTICE                          # third-party attributions
 ├── LICENSE  /  LICENSE_ENTERPRISE  # edition-specific license
 ├── requirements.txt                # pinned Python deps
@@ -264,7 +276,7 @@ the native `yaspy` setup automatically:
 
 ```bash
 # 1. Extract the zip
-unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.4.10.zip
+unzip AI-Agent-Infra-with-YashanDB-Enterprise-Edition-v4.4.12.zip
 cd AI-Agent-Infra-with-YashanDB-Enterprise-Edition
 
 # Select any accessible Python 3.14+ runtime; no vendor-specific path is required.
@@ -379,9 +391,9 @@ Use the checksum-journaled migration runner for every additive release step;
 do not select or reorder individual migration files manually:
 
 ```bash
-"$PYTHON_BIN" scripts/migration_runner.py --preflight --version 4.4.10 \
+"$PYTHON_BIN" scripts/migration_runner.py --preflight --version 4.4.12 \
   --database yashandb --edition <community|enterprise> --yashandb-config config.json
-"$PYTHON_BIN" scripts/migration_runner.py --version 4.4.10 \
+"$PYTHON_BIN" scripts/migration_runner.py --version 4.4.12 \
   --database yashandb --edition <community|enterprise> --yashandb-config config.json \
   --confirm-database-backup
 ```
@@ -543,7 +555,7 @@ Tests use the configured `config.json` connection. Set
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
 | `import yaspy` fails | driver not installed | `bash scripts/install_yaspy.sh` |
-| `libyascli.so: cannot open shared object file` | `LD_LIBRARY_PATH` not set | `export LD_LIBRARY_PATH=~/.yashandb/client/lib:$LD_LIBRARY_PATH` |
+| `libyascli.so` or `libyas_infra.so.0` cannot be opened | Missing native-client setup or SONAME links | Install `binutils`, run `PYTHON_BIN=<Python-3.14> bash scripts/install_yaspy.sh`, then use `start_web_server.sh`; it exports the package-local client path. Do not infer ABI suffixes from library filenames. |
 | Server crashes with segfault | yaspy VECTOR GC bug | ensure `connection.py` converts `array.array` to string |
 | `YAS-01017: invalid credentials` | wrong DB user/password | re-run `bash scripts/config_wizard.sh` |
 | `crypto package not found` | missing grant | ask DBA to grant execute on the built-in crypto package |

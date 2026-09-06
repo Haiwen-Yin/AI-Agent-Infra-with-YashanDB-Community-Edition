@@ -1,4 +1,4 @@
-"""AI Agent Infra v4.4.11 - Community Edition - Database Connection Pool Manager
+"""AI Agent Infra v4.4.12 - Community Edition - Database Connection Pool Manager
 
 Unified yaspy connection pool with bind-variable support.
 Replaces all deploy_yashandb.py subprocess calls with direct yaspy access.
@@ -98,7 +98,7 @@ def get_connection():
 
 _current_agent_id: ContextVar[Optional[str]] = ContextVar("cx_yashandb_agent_id", default=None)
 
-_end_user_connections: Dict[str, yaspy.Connection] = {}
+_end_user_connections: Dict[tuple[int, str], yaspy.Connection] = {}
 _end_user_lock = threading.Lock()
 
 _agent_eu_creds: Optional[Dict[str, str]] = None
@@ -143,12 +143,13 @@ def _get_end_user_password(agent_id: str) -> Optional[str]:
         return None
 
 def get_end_user_connection(agent_id: str) -> Optional[yaspy.Connection]:
+    key = (threading.get_ident(), agent_id)
     cfg = get_config()
     if cfg.agent.mode == "agent":
         return _get_agent_mode_end_user_connection(agent_id)
 
     with _end_user_lock:
-        existing = _end_user_connections.get(agent_id)
+        existing = _end_user_connections.get(key)
         if existing:
             try:
                 with existing.cursor() as cur:
@@ -159,11 +160,11 @@ def get_end_user_connection(agent_id: str) -> Optional[yaspy.Connection]:
                     existing.close()
                 except Exception:
                     pass
-                _end_user_connections.pop(agent_id, None)
+                _end_user_connections.pop(key, None)
 
         pwd = _get_end_user_password(agent_id)
         if not pwd:
-            _logger.debug("No end user password for %s, falling back to pool", agent_id)
+            _logger.debug("No end user password for %s; denying independent connection", agent_id)
             return None
 
         eu_name = _agent_id_to_end_user_name(agent_id)
@@ -176,7 +177,7 @@ def get_end_user_connection(agent_id: str) -> Optional[yaspy.Connection]:
             )
             with conn.cursor() as cur:
                 cur.execute(f"ALTER SESSION SET CURRENT_SCHEMA = {cfg.database.user}")
-            _end_user_connections[agent_id] = conn
+            _end_user_connections[key] = conn
             _logger.info("Created Deep Sec End User connection for %s (EU: %s)", agent_id, eu_name)
             return conn
         except Exception as e:
@@ -185,8 +186,9 @@ def get_end_user_connection(agent_id: str) -> Optional[yaspy.Connection]:
 
 
 def _get_agent_mode_end_user_connection(agent_id: str) -> Optional[yaspy.Connection]:
+    key = (threading.get_ident(), agent_id)
     with _end_user_lock:
-        existing = _end_user_connections.get(agent_id)
+        existing = _end_user_connections.get(key)
         if existing:
             try:
                 with existing.cursor() as cur:
@@ -197,7 +199,7 @@ def _get_agent_mode_end_user_connection(agent_id: str) -> Optional[yaspy.Connect
                     existing.close()
                 except Exception:
                     pass
-                _end_user_connections.pop(agent_id, None)
+                _end_user_connections.pop(key, None)
 
     try:
         cfg = get_config()
@@ -210,7 +212,7 @@ def _get_agent_mode_end_user_connection(agent_id: str) -> Optional[yaspy.Connect
         with conn.cursor() as cur:
             cur.execute(f"ALTER SESSION SET CURRENT_SCHEMA = {cfg.database.user}")
         with _end_user_lock:
-            _end_user_connections[agent_id] = conn
+            _end_user_connections[key] = conn
         _logger.info("Created Agent-mode End User connection for %s (EU: %s)", agent_id, creds["username"])
         return conn
     except Exception as e:

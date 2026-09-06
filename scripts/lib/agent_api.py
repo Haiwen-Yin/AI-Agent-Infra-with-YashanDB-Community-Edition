@@ -1,4 +1,4 @@
-"""AI Agent Infra v4.4.11 - Community Edition - Agent API
+"""AI Agent Infra v4.4.12 - Community Edition - Agent API
 
 Agent registration, session management, access audit logging,
 collaboration tracking, and Admin/Agent separation support.
@@ -92,6 +92,7 @@ def _database_user_name(agent_id: str) -> str:
 def _ensure_end_user(agent_id: str) -> None:
     """Provision a regular least-privilege YashanDB user for a Business Agent."""
     if _get_end_user_password_direct(agent_id):
+        _ensure_context_reader_identity(agent_id)
         return
     username = _database_user_name(agent_id)
     password = secrets.token_urlsafe(36)
@@ -120,8 +121,18 @@ def _ensure_end_user(agent_id: str) -> None:
             "config_value": password,
             "description": f"Independent YashanDB login for Agent {agent_id}",
         })
+        _ensure_context_reader_identity(agent_id)
     except Exception as e:
         logger.error("Independent database user provisioning failed for %s: %s", agent_id, e)
+
+
+def _ensure_context_reader_identity(agent_id: str) -> None:
+    execute("""MERGE INTO CX_AGENT_DB_IDENTITIES d
+        USING (SELECT :agent AS AGENT_ID, :username AS DB_USERNAME FROM DUAL) s
+        ON (d.AGENT_ID=s.AGENT_ID)
+        WHEN MATCHED THEN UPDATE SET DB_USERNAME=s.DB_USERNAME
+        WHEN NOT MATCHED THEN INSERT(AGENT_ID,DB_USERNAME) VALUES(s.AGENT_ID,s.DB_USERNAME)
+    """, {"agent": agent_id, "username": _database_user_name(agent_id)})
 
 
 def ensure_external_agent_identity(agent_id: str) -> None:
@@ -135,6 +146,7 @@ def ensure_external_agent_identity(agent_id: str) -> None:
     _ensure_end_user(agent_id)
     if not _get_end_user_password_direct(agent_id):
         raise RuntimeError(f"No YashanDB login credentials for agent {agent_id}")
+    _ensure_context_reader_identity(agent_id)
 
 
 def get_agent(agent_id: str) -> Optional[Dict[str, Any]]:
