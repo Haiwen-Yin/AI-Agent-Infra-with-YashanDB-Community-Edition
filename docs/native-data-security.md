@@ -1,4 +1,4 @@
-# Native Entity Access v4.4.12
+# Native Entity Access v4.4.13
 
 The v4.4.12 development baseline includes migration 70. This change applies to
 Community and Enterprise. Independent Agent users no longer access ENTITIES,
