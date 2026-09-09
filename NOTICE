@@ -19,8 +19,8 @@ This product uses YashanDB technologies, including but not limited to:
 - YashanDB DBMS_SCHEDULER (scheduled jobs)
 - yaspy 1.2.1 (Python driver for YashanDB)
 
-YashanDB (崖山数据库) is a product of 北京崖山科技有限公司
-(Beijing Yashan Technology Co., Ltd.).
+YashanDB (崖山数据库) is developed by 深圳崖山科技有限公司
+(Shenzhen Yashan Technology Co., Ltd.).
 yaspy is the official Python driver for YashanDB.
 Other names may be trademarks of their respective owners.
 
