@@ -1,4 +1,4 @@
-"""AI Agent Infra v4.4.14 - Community Edition - Database Connection Pool Manager
+"""AI Agent Infra v4.4.15 - Community Edition - Database Connection Pool Manager
 
 Unified yaspy connection pool with bind-variable support.
 Replaces all deploy_yashandb.py subprocess calls with direct yaspy access.
@@ -14,6 +14,13 @@ DATABASE_DIALECT = "yashandb"
 
 def scalar_select_suffix() -> str:
     return " FROM " + "DU" + "AL"
+
+
+def database_version_observation() -> str:
+    # Some deployments deliberately hide this view from application users.
+    # The diagnostics service reports unavailable metadata without widening SQL grants.
+    row=execute_query_one('SELECT VERSION FROM V$INSTANCE',{})
+    return str(row['version']) if row else ''
 
 
 def merge_scalar_suffix() -> str:
