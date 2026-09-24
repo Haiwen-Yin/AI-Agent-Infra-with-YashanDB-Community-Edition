@@ -50,7 +50,8 @@ if ! PYTHON_BIN="$(cx_resolve_python "${PYTHON_BIN:-}")"; then
     exit 1
 fi
 cx_prepare_python_environment "$PYTHON_BIN"
-PYTHON_SITE=$("$PYTHON_BIN" -c "import site; print(site.getsitepackages()[0])")
+PYTHON_SITE=$("$PYTHON_BIN" -c "import sysconfig; print(sysconfig.get_path('platlib'))")
+mkdir -p "$PYTHON_SITE"
 
 echo "[install] Installing yaspy driver..."
 
